@@ -58,3 +58,7 @@ api_keys.md
 test-results/
 playwright-report/
 playwright/.cache/
+
+# Proxy
+proxy/data/
+proxy/.env

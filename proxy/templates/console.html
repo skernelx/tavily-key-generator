@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tavily API Proxy</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f0f2f5; color: #1a1a2e; min-height: 100vh; }
+.container { max-width: 1200px; margin: 0 auto; padding: 24px; }
+h1 { font-size: 24px; margin-bottom: 4px; }
+.subtitle { color: #666; font-size: 14px; margin-bottom: 24px; }
+.card { background: #fff; border-radius: 12px; padding: 24px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+.card h2 { font-size: 18px; margin-bottom: 6px; }
+.card .desc { color: #888; font-size: 13px; margin-bottom: 16px; }
+.stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
+.stat-box { border: 1px solid #e8e8e8; border-radius: 8px; padding: 14px; }
+.stat-box .label { font-size: 13px; color: #888; margin-bottom: 4px; }
+.stat-box .value { font-size: 28px; font-weight: 700; }
+.stat-box .value span { font-size: 16px; color: #888; font-weight: 400; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th { text-align: left; padding: 10px 12px; color: #888; font-weight: 500; border-bottom: 1px solid #eee; }
+td { padding: 10px 12px; border-bottom: 1px solid #f5f5f5; }
+.btn { display: inline-block; padding: 6px 16px; border-radius: 6px; border: 1px solid #ddd; background: #fff; cursor: pointer; font-size: 13px; }
+.btn:hover { background: #f5f5f5; }
+.btn-primary { background: #1a1a6e; color: #fff; border-color: #1a1a6e; }
+.btn-primary:hover { background: #2a2a8e; }
+.btn-danger { color: #e74c3c; border-color: #e74c3c; }
+.btn-danger:hover { background: #fdf0ef; }
+.btn-sm { padding: 4px 10px; font-size: 12px; }
+input[type="text"], input[type="password"], textarea { width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; }
+textarea { min-height: 80px; resize: vertical; }
+.flex { display: flex; gap: 8px; align-items: center; }
+.mt { margin-top: 12px; }
+.tag { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 12px; }
+.tag-ok { background: #e8f5e9; color: #2e7d32; }
+.tag-off { background: #fce4ec; color: #c62828; }
+.mono { font-family: 'SF Mono', Monaco, Consolas, monospace; font-size: 13px; }
+#login-box { max-width: 360px; margin: 120px auto; }
+.hidden { display: none; }
+</style>
+</head>
+<body>
+
+<!-- Login -->
+<div id="login-box" class="card">
+  <h2>Tavily API Proxy</h2>
+  <p class="desc">输入管理密码进入控制台</p>
+  <input type="password" id="pwd-input" placeholder="密码" onkeydown="if(event.key==='Enter')doLogin()">
+  <button class="btn btn-primary mt" style="width:100%" onclick="doLogin()">登录</button>
+  <p id="login-err" style="color:#e74c3c;font-size:13px;margin-top:8px" class="hidden"></p>
+</div>
+
+<!-- Dashboard -->
+<div id="dashboard" class="hidden">
+<div class="container">
+  <h1>控制台</h1>
+  <p class="subtitle">Tavily API Proxy · Key 池管理</p>
+
+  <!-- Overview -->
+  <div class="card">
+    <h2>用量概览</h2>
+    <p class="desc">账户级成功率、失败量与配额窗口</p>
+    <div class="stats-grid" id="overview-stats"></div>
+  </div>
+
+  <!-- Tokens -->
+  <div class="card">
+    <h2>Token 列表</h2>
+    <p class="desc">代理访问 Token，分配给应用使用</p>
+    <div class="flex mt" style="margin-bottom:12px">
+      <input type="text" id="token-name" placeholder="Token 备注名（可选）" style="max-width:240px">
+      <button class="btn btn-primary" onclick="createToken()">创建 Token</button>
+    </div>
+    <div style="overflow-x:auto">
+      <table id="tokens-table"><thead><tr><th>Token</th><th>配额窗口</th><th>用量统计</th><th>操作</th></tr></thead><tbody></tbody></table>
+    </div>
+  </div>
+
+  <!-- Keys -->
+  <div class="card">
+    <h2>API Key 池</h2>
+    <p class="desc">管理 Tavily API Key，支持批量导入</p>
+    <div class="flex mt" style="margin-bottom:12px;flex-wrap:wrap">
+      <input type="text" id="single-key" placeholder="tvly-xxx" style="max-width:360px">
+      <button class="btn btn-primary" onclick="addSingleKey()">添加</button>
+      <button class="btn" onclick="document.getElementById('import-area').classList.toggle('hidden')">批量导入</button>
+    </div>
+    <div id="import-area" class="hidden" style="margin-bottom:12px">
+      <textarea id="import-text" placeholder="粘贴 api_keys.md 内容，每行一条&#10;格式: email,password,tvly-xxx,timestamp;"></textarea>
+      <button class="btn btn-primary mt" onclick="importKeys()">导入</button>
+    </div>
+    <div style="overflow-x:auto">
+      <table id="keys-table"><thead><tr><th>ID</th><th>Key</th><th>邮箱</th><th>成功</th><th>失败</th><th>状态</th><th>操作</th></tr></thead><tbody></tbody></table>
+    </div>
+  </div>
+
+</div>
+</div>
+
+<script>
+const API = '';
+let PWD = localStorage.getItem('tavily_proxy_pwd') || '';
+
+function headers() {
+  return { 'Content-Type': 'application/json', 'X-Admin-Password': PWD };
+}
+
+async function api(method, path, body) {
+  const opts = { method, headers: headers() };
+  if (body) opts.body = JSON.stringify(body);
+  const r = await fetch(API + path, opts);
+  if (r.status === 401) { logout(); throw new Error('Unauthorized'); }
+  return r.json();
+}
+
+function doLogin() {
+  PWD = document.getElementById('pwd-input').value;
+  localStorage.setItem('tavily_proxy_pwd', PWD);
+  api('GET', '/api/stats').then(() => {
+    document.getElementById('login-box').classList.add('hidden');
+    document.getElementById('dashboard').classList.remove('hidden');
+    refresh();
+  }).catch(() => {
+    document.getElementById('login-err').textContent = '密码错误';
+    document.getElementById('login-err').classList.remove('hidden');
+  });
+}
+
+function logout() {
+  PWD = '';
+  localStorage.removeItem('tavily_proxy_pwd');
+  document.getElementById('login-box').classList.remove('hidden');
+  document.getElementById('dashboard').classList.add('hidden');
+}
+
+async function refresh() {
+  // Stats
+  const stats = await api('GET', '/api/stats');
+  const o = stats.overview;
+  document.getElementById('overview-stats').innerHTML = `
+    <div class="stat-box"><div class="label">今日成功</div><div class="value">${o.today_success}</div></div>
+    <div class="stat-box"><div class="label">今日失败</div><div class="value">${o.today_failed}</div></div>
+    <div class="stat-box"><div class="label">本月成功</div><div class="value">${o.month_success}</div></div>
+    <div class="stat-box"><div class="label">Key 池</div><div class="value">${stats.keys_active} <span>/ ${stats.keys_total}</span></div></div>
+  `;
+
+  // Tokens
+  const tokensData = await api('GET', '/api/tokens');
+  const tbody = document.querySelector('#tokens-table tbody');
+  tbody.innerHTML = '';
+  for (const t of tokensData.tokens) {
+    const s = t.stats || {};
+    tbody.innerHTML += `<tr>
+      <td class="mono">${t.token}</td>
+      <td style="font-size:12px;line-height:1.8">
+        小时 ${s.hour_count||0} / ${t.hourly_limit}<br>
+        日 ${s.today_count||0} / ${t.daily_limit}<br>
+        月 ${s.month_count||0} / ${t.monthly_limit}
+      </td>
+      <td style="font-size:12px;line-height:1.8">
+        今日成功 ${s.today_success||0}<br>
+        今日失败 ${s.today_failed||0}<br>
+        本月成功 ${s.month_success||0}
+      </td>
+      <td>
+        <button class="btn btn-sm" onclick="copyText('${t.token}')">复制</button>
+        <button class="btn btn-sm btn-danger" onclick="delToken(${t.id})">删除</button>
+      </td>
+    </tr>`;
+  }
+
+  // Keys
+  const keysData = await api('GET', '/api/keys');
+  const ktbody = document.querySelector('#keys-table tbody');
+  ktbody.innerHTML = '';
+  for (const k of keysData.keys) {
+    const active = k.active === 1;
+    ktbody.innerHTML += `<tr>
+      <td>${k.id}</td>
+      <td class="mono">${k.key_masked}</td>
+      <td style="font-size:12px">${k.email||'-'}</td>
+      <td>${k.total_used}</td>
+      <td>${k.total_failed}</td>
+      <td><span class="tag ${active?'tag-ok':'tag-off'}">${active?'正常':'禁用'}</span></td>
+      <td>
+        <button class="btn btn-sm" onclick="toggleKey(${k.id},${active?0:1})">${active?'禁用':'启用'}</button>
+        <button class="btn btn-sm btn-danger" onclick="delKey(${k.id})">删除</button>
+      </td>
+    </tr>`;
+  }
+}
+
+async function createToken() {
+  const name = document.getElementById('token-name').value;
+  await api('POST', '/api/tokens', { name });
+  document.getElementById('token-name').value = '';
+  refresh();
+}
+
+async function delToken(id) { if(confirm('确认删除？')){ await api('DELETE', `/api/tokens/${id}`); refresh(); } }
+
+async function addSingleKey() {
+  const key = document.getElementById('single-key').value.trim();
+  if (!key) return;
+  await api('POST', '/api/keys', { key });
+  document.getElementById('single-key').value = '';
+  refresh();
+}
+
+async function importKeys() {
+  const text = document.getElementById('import-text').value;
+  if (!text.trim()) return;
+  const r = await api('POST', '/api/keys', { file: text });
+  alert(`已导入 ${r.imported} 个 Key`);
+  document.getElementById('import-text').value = '';
+  document.getElementById('import-area').classList.add('hidden');
+  refresh();
+}
+
+async function delKey(id) { if(confirm('确认删除？')){ await api('DELETE', `/api/keys/${id}`); refresh(); } }
+async function toggleKey(id, active) { await api('PUT', `/api/keys/${id}/toggle`, { active }); refresh(); }
+
+function copyText(t) {
+  navigator.clipboard.writeText(t).then(() => {
+    const el = event.target;
+    el.textContent = '已复制';
+    setTimeout(() => el.textContent = '复制', 1500);
+  });
+}
+
+// Auto login if password cached
+if (PWD) {
+  api('GET', '/api/stats').then(() => {
+    document.getElementById('login-box').classList.add('hidden');
+    document.getElementById('dashboard').classList.remove('hidden');
+    refresh();
+  }).catch(() => {});
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,10 @@
+services:
+  tavily-proxy:
+    build: .
+    ports:
+      - "9874:9874"
+    environment:
+      - ADMIN_PASSWORD=change-me
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
