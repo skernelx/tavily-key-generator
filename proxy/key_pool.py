@@ -1,44 +1,53 @@
 """
-API Key 轮询池
+按服务维度管理 API Key 轮询池
 """
 import threading
-from database import get_active_keys, update_key_usage
+
+from database import SUPPORTED_SERVICES, get_active_keys, normalize_service, update_key_usage
 
 
-class KeyPool:
+class ServiceKeyPool:
     def __init__(self):
         self._lock = threading.Lock()
-        self._index = 0
-        self._keys = []
-        self._initialized = False
+        self._keys = {service: [] for service in SUPPORTED_SERVICES}
+        self._indexes = {service: 0 for service in SUPPORTED_SERVICES}
+        self._initialized = set()
 
-    def reload(self):
+    def reload(self, service=None):
+        services = [normalize_service(service)] if service else list(SUPPORTED_SERVICES)
         with self._lock:
-            self._keys = [dict(row) for row in get_active_keys()]
-            if self._index >= len(self._keys):
-                self._index = 0
-            self._initialized = True
+            for item in services:
+                self._keys[item] = [dict(row) for row in get_active_keys(item)]
+                if self._indexes[item] >= len(self._keys[item]):
+                    self._indexes[item] = 0
+                self._initialized.add(item)
 
-    def get_next_key(self):
-        """Round-robin 返回下一个可用 key，返回 dict 或 None"""
-        if not self._initialized:
-            self.reload()
+    def get_next_key(self, service="tavily"):
+        """Round-robin 返回某个服务下一个可用 key。"""
+        service = normalize_service(service)
+        if service not in self._initialized:
+            self.reload(service)
+
         with self._lock:
-            if not self._keys:
+            keys = self._keys[service]
+            if not keys:
                 return None
-            key = self._keys[self._index]
-            self._index = (self._index + 1) % len(self._keys)
+            index = self._indexes[service]
+            key = keys[index]
+            self._indexes[service] = (index + 1) % len(keys)
             return key
 
-    def report_result(self, key_id, success):
-        """记录使用结果，失败 3 次自动禁用并从池中移除"""
+    def report_result(self, service, key_id, success):
+        """记录使用结果，失败 3 次自动禁用并从对应池中移除。"""
+        service = normalize_service(service)
         update_key_usage(key_id, success)
         if not success:
             with self._lock:
-                self._keys = [k for k in self._keys if k["id"] != key_id or k.get("consecutive_fails", 0) < 2]
-                # 完整重载以获取最新状态
-            self.reload()
+                self._keys[service] = [
+                    key for key in self._keys[service]
+                    if key["id"] != key_id or key.get("consecutive_fails", 0) < 2
+                ]
+            self.reload(service)
 
 
-# 全局单例
-pool = KeyPool()
+pool = ServiceKeyPool()

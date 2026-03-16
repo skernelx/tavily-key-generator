@@ -1,11 +1,23 @@
 """
 SQLite 数据库管理
 """
-import sqlite3
 import os
+import random
+import re
+import sqlite3
+import string
 from datetime import datetime, timezone
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "data", "proxy.db")
+SUPPORTED_SERVICES = ("tavily", "firecrawl")
+TOKEN_PREFIX = {
+    "tavily": "tvly-",
+    "firecrawl": "fctk-",
+}
+KEY_PATTERNS = {
+    "tavily": r"(tvly-[A-Za-z0-9\-_]{20,})",
+    "firecrawl": r"(fc-[A-Za-z0-9\-_]{20,})",
+}
 
 KEY_USAGE_COLUMNS = {
     "usage_key_used": "INTEGER",
@@ -18,6 +30,13 @@ KEY_USAGE_COLUMNS = {
     "usage_synced_at": "TEXT",
     "usage_sync_error": "TEXT DEFAULT ''",
 }
+
+
+def normalize_service(service):
+    service = (service or "tavily").strip().lower()
+    if service not in SUPPORTED_SERVICES:
+        raise ValueError(f"unsupported service: {service}")
+    return service
 
 
 def get_conn():
@@ -33,6 +52,7 @@ def init_db():
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS api_keys (
             id INTEGER PRIMARY KEY,
+            service TEXT NOT NULL DEFAULT 'tavily',
             key TEXT UNIQUE NOT NULL,
             email TEXT,
             active INTEGER DEFAULT 1,
@@ -45,6 +65,7 @@ def init_db():
 
         CREATE TABLE IF NOT EXISTS tokens (
             id INTEGER PRIMARY KEY,
+            service TEXT NOT NULL DEFAULT 'tavily',
             token TEXT UNIQUE NOT NULL,
             name TEXT DEFAULT '',
             hourly_limit INTEGER DEFAULT 0,
@@ -55,6 +76,7 @@ def init_db():
 
         CREATE TABLE IF NOT EXISTS usage_logs (
             id INTEGER PRIMARY KEY,
+            service TEXT NOT NULL DEFAULT 'tavily',
             token_id INTEGER,
             api_key_id INTEGER,
             endpoint TEXT,
@@ -71,7 +93,9 @@ def init_db():
             value TEXT NOT NULL
         );
     """)
+    _ensure_service_columns(conn)
     _ensure_usage_columns(conn)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_usage_service_created ON usage_logs(service, created_at)")
     conn.commit()
     conn.close()
 
@@ -81,11 +105,34 @@ def _table_columns(conn, table_name):
     return {row["name"] for row in rows}
 
 
+def _ensure_service_columns(conn):
+    service_columns = {
+        "api_keys": "TEXT NOT NULL DEFAULT 'tavily'",
+        "tokens": "TEXT NOT NULL DEFAULT 'tavily'",
+        "usage_logs": "TEXT NOT NULL DEFAULT 'tavily'",
+    }
+    for table_name, definition in service_columns.items():
+        existing = _table_columns(conn, table_name)
+        if "service" not in existing:
+            conn.execute(f"ALTER TABLE {table_name} ADD COLUMN service {definition}")
+
+
 def _ensure_usage_columns(conn):
     existing = _table_columns(conn, "api_keys")
     for name, definition in KEY_USAGE_COLUMNS.items():
         if name not in existing:
             conn.execute(f"ALTER TABLE api_keys ADD COLUMN {name} {definition}")
+
+
+def _service_where(service):
+    if not service:
+        return "", []
+    return " WHERE service = ?", [normalize_service(service)]
+
+
+def _query_all(conn, table_name, service=None):
+    where_sql, params = _service_where(service)
+    return conn.execute(f"SELECT * FROM {table_name}{where_sql} ORDER BY id", params).fetchall()
 
 
 # ═══ Settings ═══
@@ -110,20 +157,24 @@ def set_setting(key, value):
 
 # ═══ API Keys ═══
 
-def add_key(key, email=""):
+def add_key(key, email="", service="tavily"):
+    service = normalize_service(service)
     conn = get_conn()
     try:
-        conn.execute("INSERT OR IGNORE INTO api_keys (key, email) VALUES (?, ?)", (key, email))
+        conn.execute(
+            "INSERT OR IGNORE INTO api_keys (service, key, email) VALUES (?, ?, ?)",
+            (service, key, email),
+        )
         conn.commit()
         return conn.execute("SELECT * FROM api_keys WHERE key = ?", (key,)).fetchone()
     finally:
         conn.close()
 
 
-def get_all_keys():
+def get_all_keys(service=None):
     conn = get_conn()
     try:
-        return conn.execute("SELECT * FROM api_keys ORDER BY id").fetchall()
+        return _query_all(conn, "api_keys", service)
     finally:
         conn.close()
 
@@ -136,10 +187,17 @@ def get_key_by_id(key_id):
         conn.close()
 
 
-def get_active_keys():
+def get_active_keys(service=None):
     conn = get_conn()
     try:
-        return conn.execute("SELECT * FROM api_keys WHERE active = 1 ORDER BY id").fetchall()
+        where_sql, params = _service_where(service)
+        sql = f"SELECT * FROM api_keys{where_sql}"
+        if where_sql:
+            sql += " AND active = 1"
+        else:
+            sql += " WHERE active = 1"
+        sql += " ORDER BY id"
+        return conn.execute(sql, params).fetchall()
     finally:
         conn.close()
 
@@ -158,7 +216,6 @@ def update_key_usage(key_id, success):
                 "UPDATE api_keys SET total_failed = total_failed + 1, consecutive_fails = consecutive_fails + 1, last_used_at = ? WHERE id = ?",
                 (now, key_id),
             )
-            # 连续失败 3 次自动禁用
             row = conn.execute("SELECT consecutive_fails FROM api_keys WHERE id = ?", (key_id,)).fetchone()
             if row and row["consecutive_fails"] >= 3:
                 conn.execute("UPDATE api_keys SET active = 0 WHERE id = ?", (key_id,))
@@ -185,22 +242,23 @@ def delete_key(key_id):
         conn.close()
 
 
-def import_keys_from_text(text):
-    """从 api_keys.md 格式文本批量导入 key"""
-    import re
+def import_keys_from_text(text, service="tavily"):
+    """从批量文本导入不同服务的 key。"""
+    service = normalize_service(service)
+    pattern = KEY_PATTERNS[service]
     count = 0
-    for line in text.strip().split("\n"):
+    for line in text.strip().splitlines():
         line = line.strip()
         if not line:
             continue
-        # 格式: email,password,tvly-xxx,timestamp;
-        match = re.search(r"(tvly-[A-Za-z0-9\-_]{20,})", line)
-        if match:
-            key = match.group(1)
-            parts = line.split(",")
-            email = parts[0] if len(parts) >= 3 else ""
-            add_key(key, email)
-            count += 1
+        match = re.search(pattern, line)
+        if not match:
+            continue
+        key = match.group(1)
+        parts = line.split(",")
+        email = parts[0].strip() if len(parts) >= 3 else ""
+        add_key(key, email, service=service)
+        count += 1
     return count
 
 
@@ -263,24 +321,25 @@ def update_key_remote_usage_error(key_id, error_message):
 
 # ═══ Tokens ═══
 
-def create_token(name=""):
-    import random
-    import string
-    # 生成类似真实 Tavily key 的长 token: tvly-xxxxxxxx...
-    token = "tvly-" + "".join(random.choices(string.ascii_letters + string.digits, k=32))
+def create_token(name="", service="tavily"):
+    service = normalize_service(service)
+    token = TOKEN_PREFIX[service] + "".join(random.choices(string.ascii_letters + string.digits, k=32))
     conn = get_conn()
     try:
-        conn.execute("INSERT INTO tokens (token, name) VALUES (?, ?)", (token, name))
+        conn.execute(
+            "INSERT INTO tokens (service, token, name) VALUES (?, ?, ?)",
+            (service, token, name),
+        )
         conn.commit()
         return conn.execute("SELECT * FROM tokens WHERE token = ?", (token,)).fetchone()
     finally:
         conn.close()
 
 
-def get_all_tokens():
+def get_all_tokens(service=None):
     conn = get_conn()
     try:
-        return conn.execute("SELECT * FROM tokens ORDER BY id").fetchall()
+        return _query_all(conn, "tokens", service)
     finally:
         conn.close()
 
@@ -304,20 +363,24 @@ def delete_token(token_id):
 
 # ═══ Usage Logs ═══
 
-def log_usage(token_id, api_key_id, endpoint, success, latency_ms):
+def log_usage(token_id, api_key_id, endpoint, success, latency_ms, service="tavily"):
+    service = normalize_service(service)
     conn = get_conn()
     try:
         conn.execute(
-            "INSERT INTO usage_logs (token_id, api_key_id, endpoint, success, latency_ms) VALUES (?, ?, ?, ?, ?)",
-            (token_id, api_key_id, endpoint, success, latency_ms),
+            """
+            INSERT INTO usage_logs (service, token_id, api_key_id, endpoint, success, latency_ms)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (service, token_id, api_key_id, endpoint, success, latency_ms),
         )
         conn.commit()
     finally:
         conn.close()
 
 
-def get_usage_stats(token_id=None):
-    """获取用量统计"""
+def get_usage_stats(token_id=None, service=None):
+    """获取用量统计。"""
     conn = get_conn()
     try:
         now = datetime.now(timezone.utc)
@@ -325,17 +388,20 @@ def get_usage_stats(token_id=None):
         month = now.strftime("%Y-%m")
         hour_ago = now.replace(minute=0, second=0, microsecond=0).isoformat()
 
-        where = ""
-        params = []
-        if token_id:
-            where = "AND token_id = ?"
-            params = [token_id]
+        filters = []
+        filter_params = []
+        if service:
+            filters.append("service = ?")
+            filter_params.append(normalize_service(service))
+        if token_id is not None:
+            filters.append("token_id = ?")
+            filter_params.append(token_id)
 
         def count(condition, extra_params=None):
-            p = (extra_params or []) + list(params)
-            row = conn.execute(
-                f"SELECT COUNT(*) as c FROM usage_logs WHERE {condition} {where}", p
-            ).fetchone()
+            where_parts = [condition] + filters
+            sql = "SELECT COUNT(*) as c FROM usage_logs WHERE " + " AND ".join(where_parts)
+            params = list(extra_params or []) + filter_params
+            row = conn.execute(sql, params).fetchone()
             return row["c"]
 
         return {
@@ -350,9 +416,9 @@ def get_usage_stats(token_id=None):
         conn.close()
 
 
-def check_quota(token_id, hourly_limit, daily_limit, monthly_limit):
-    """检查 token 配额是否超限，返回 (ok, reason)"""
-    stats = get_usage_stats(token_id)
+def check_quota(token_id, hourly_limit, daily_limit, monthly_limit, service=None):
+    """检查 token 配额是否超限，返回 (ok, reason)。"""
+    stats = get_usage_stats(token_id=token_id, service=service)
     if hourly_limit and stats["hour_count"] >= hourly_limit:
         return False, "hourly quota exceeded"
     if daily_limit and stats["today_count"] >= daily_limit:

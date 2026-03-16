@@ -10,6 +10,7 @@ ENV/
 
 # 账号信息
 accounts.txt
+firecrawl_accounts.txt
 accounts.csv
 .env
 .env.local
@@ -29,3 +30,6 @@ proxy/data/
 
 # 系统
 .DS_Store
+
+# 本地 UI 验证临时截图
+proxy-ui-*.png

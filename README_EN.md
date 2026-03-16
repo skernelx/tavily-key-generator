@@ -100,27 +100,28 @@ When you run the launcher, it will automatically:
 13. Handle email verification and password setup
 14. Recover from random password-page challenge failures
 15. Extract the API key
-16. Verify the API key with a real Tavily API call
-17. Save the result to `accounts.txt`
-18. Upload the verified key if upload is enabled
+16. Verify the API key with a real API call for the selected service
+17. Save the result to `accounts.txt` or `firecrawl_accounts.txt`
+18. Upload the verified key with its service tag if upload is enabled
 
 ## Runtime Flow
 
 ```text
 run.py
+  -> choose service (Tavily / Firecrawl)
   -> load .env
   -> choose domain
   -> input count / concurrency
   -> choose upload or not
-  -> create mailbox
-  -> open Tavily signup page
-  -> solve Turnstile locally
-  -> receive email code
-  -> set password
-  -> recover random password-page challenge
-  -> enter Tavily dashboard
+  -> [Tavily only] start local Turnstile solver
+  -> create mailbox with service-specific prefix
+  -> open signup page
+  -> [Tavily only] solve Turnstile locally
+  -> receive email code or verification link
+  -> set password / finish verification
+  -> enter dashboard
   -> extract API key
-  -> verify API key with real API call
+  -> verify API key with the real service API
   -> save / upload
 ```
 
@@ -180,6 +181,7 @@ DEFAULT_COUNT=1
 DEFAULT_CONCURRENCY=2
 DEFAULT_DELAY=10
 REGISTER_HEADLESS=true
+FIRECRAWL_REGISTER_HEADLESS=true
 EMAIL_CODE_TIMEOUT=90
 API_KEY_TIMEOUT=20
 EMAIL_POLL_INTERVAL=3
@@ -190,6 +192,8 @@ SOLVER_THREADS=1
 Notes:
 
 - `REGISTER_HEADLESS=true` keeps the browser in the background
+- If `FIRECRAWL_REGISTER_HEADLESS` is not set, it now inherits `REGISTER_HEADLESS`
+- Firecrawl now runs headless by default; if you hit `Security check failed`, temporarily switch it to `false` for visible-browser debugging
 - The actual solver thread count becomes `max(SOLVER_THREADS, selected concurrency)`
 - In normal use, you do not need to pass extra command-line arguments
 
@@ -269,7 +273,7 @@ At minimum, the target machine should already have:
 ├── config.py                 # .env / environment loading
 ├── start_auto.sh             # macOS / Linux launcher
 ├── start_auto.bat            # Windows launcher
-├── proxy/                    # Optional Tavily key-pool proxy service
+├── proxy/                    # Optional multi-service proxy (Tavily / Firecrawl)
 ├── README.md                 # Chinese README
 └── README_EN.md              # English README
 ```
@@ -288,7 +292,7 @@ Some files are not primary entry points, but they are still part of the working 
   Result-storage helper for `api_solver.py`.
 
 - `proxy/`
-  An optional standalone module for turning multiple Tavily keys into a pooled proxy service.
+  An optional standalone module for turning Tavily / Firecrawl keys into separate pooled proxy services.
 
 Runtime artifacts that should not be committed:
 
@@ -296,11 +300,13 @@ Runtime artifacts that should not be committed:
 - `venv/`
 - `__pycache__/`
 - `accounts.txt`
+- `firecrawl_accounts.txt`
 - `proxy/data/`
 
 ## Optional Proxy Service
 
 If you want to pool registered keys behind a single endpoint, use `proxy/`.
+It now exposes isolated Tavily and Firecrawl pools, tokens, and quota sync.
 
 Start it with:
 
@@ -317,10 +323,11 @@ If your goal is simply to batch-register and collect keys, the shortest path is:
 
 1. Configure `.env`
 2. Run `python3 run.py`
-3. Choose the mail domain
-4. Enter the registration count
-5. Enter the concurrency level
-6. Read the results from `accounts.txt`
+3. Choose the service (Tavily / Firecrawl)
+4. Choose the mail domain
+5. Enter the registration count
+6. Enter the concurrency level
+7. Read the results from `accounts.txt` or `firecrawl_accounts.txt`
 
 If you also need centralized distribution, enable server upload or connect the generated keys to `proxy/`.
 

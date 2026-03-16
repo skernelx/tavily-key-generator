@@ -4,6 +4,7 @@
 1. Cloudflare 自定义邮件 API
 2. DuckMail API
 """
+import html
 import random
 import re
 import string
@@ -31,6 +32,7 @@ _DUCKMAIL_DOMAIN_PRIORITY = (
 _DUCKMAIL_DOMAIN_CACHE = None
 _DUCKMAIL_MAILBOX_CACHE = {}
 _SELECTED_DOMAIN = ""
+_SUPPORTED_SERVICES = ("tavily", "firecrawl")
 
 
 def rand_str(n=8):
@@ -61,14 +63,27 @@ def set_selected_domain(domain):
     _SELECTED_DOMAIN = (domain or "").strip()
 
 
-def create_email():
-    """按当前 provider 生成邮箱与 Tavily 密码。"""
-    password = f"Tv{rand_str(4)}{random.randint(10, 99)}!"
+def _normalize_service(service):
+    service = (service or "tavily").strip().lower()
+    if service not in _SUPPORTED_SERVICES:
+        return "tavily"
+    return service
+
+
+def _username_prefix(service):
+    service = _normalize_service(service)
+    return "fc" if service == "firecrawl" else "tavily"
+
+
+def create_email(service="tavily"):
+    """按当前 provider 生成邮箱与强密码。"""
+    password = f"Tv{rand_str(6)}{random.randint(100, 999)}!A"
+    prefix = _username_prefix(service)
 
     if EMAIL_PROVIDER == "duckmail":
-        email = _create_duckmail_mailbox(password)
+        email = _create_duckmail_mailbox(password, prefix)
     else:
-        username = f"tavily-{rand_str()}"
+        username = f"{prefix}-{rand_str()}"
         email = f"{username}@{get_active_domain()}"
 
     print(f"✅ 邮箱({EMAIL_PROVIDER}): {email}")
@@ -133,14 +148,31 @@ def _poll_mailbox(email, timeout, extractor, found_message, timeout_message, err
 
 def _extract_verification_link(message):
     subject = (message.get("subject") or "").lower()
-    if "verify" not in subject and "tavily" not in subject:
+    sender = (message.get("from") or message.get("message_from") or "").lower()
+    content = _message_content(message)
+    urls = [
+        html.unescape(raw).rstrip(").,;")
+        for raw in re.findall(r'https://[^\s<>"\']+', content, re.IGNORECASE)
+    ]
+
+    primary_link_hints = ("verif", "confirm", "magic", "auth", "callback", "signin", "signup")
+    primary_host_hints = ("tavily", "firecrawl", "clerk", "stytch", "auth", "login")
+    for url in urls:
+        lowered = url.lower()
+        if any(token in lowered for token in primary_link_hints) and any(host in lowered for host in primary_host_hints):
+            return url
+
+    combined = f"{sender} {subject} {content[:4000]}".lower()
+    message_hints = ("verify", "verification", "confirm", "magic link", "sign in", "tavily", "firecrawl")
+    if not any(token in combined for token in message_hints):
         return None
 
-    content = _message_content(message)
-    match = re.search(r'https://[^\s<>"]*verif[^\s<>"]*', content, re.IGNORECASE)
-    if not match:
-        return None
-    return match.group(0)
+    for url in urls:
+        lowered = url.lower()
+        if any(token in lowered for token in primary_link_hints):
+            return url
+
+    return None
 
 
 def _extract_email_code(message):
@@ -199,11 +231,11 @@ def _duckmail_iter_messages(email):
         yield detail.json()
 
 
-def _create_duckmail_mailbox(password):
+def _create_duckmail_mailbox(password, prefix):
     domain = _choose_duckmail_domain()
 
     for _ in range(5):
-        username = f"tavily-{rand_str()}"
+        username = f"{prefix}-{rand_str()}"
         email = f"{username}@{domain}"
         response = _duckmail_request(
             "POST",

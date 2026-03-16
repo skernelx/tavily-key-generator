@@ -1,13 +1,15 @@
 """
-Tavily API Proxy — FastAPI 主服务
+多服务 API Proxy — FastAPI 主服务
 """
 import asyncio
+import json
 import os
 import time
 from datetime import datetime, timezone
+
 import httpx
-from fastapi import FastAPI, Request, HTTPException, Depends
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.templating import Jinja2Templates
 
 import database as db
@@ -15,16 +17,28 @@ from key_pool import pool
 
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "admin")
 TAVILY_API_BASE = "https://api.tavily.com"
+FIRECRAWL_API_BASE = "https://api.firecrawl.dev"
 USAGE_SYNC_TTL_SECONDS = int(os.environ.get("USAGE_SYNC_TTL_SECONDS", "300"))
 USAGE_SYNC_CONCURRENCY = max(1, int(os.environ.get("USAGE_SYNC_CONCURRENCY", "4")))
+SERVICE_LABELS = {
+    "tavily": "Tavily",
+    "firecrawl": "Firecrawl",
+}
 
-app = FastAPI(title="Tavily API Proxy")
+app = FastAPI(title="Tavily / Firecrawl API Proxy")
 templates = Jinja2Templates(directory=os.path.join(os.path.dirname(__file__), "templates"))
 http_client = httpx.AsyncClient(timeout=60)
 
 
 def get_admin_password():
     return db.get_setting("admin_password", ADMIN_PASSWORD)
+
+
+def get_service(service_value, default="tavily"):
+    try:
+        return db.normalize_service(service_value or default)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 # ═══ Auth helpers ═══
@@ -39,15 +53,22 @@ def verify_admin(request: Request):
 
 
 def extract_token(request: Request, body: dict = None):
-    """从请求中提取用户 token"""
-    # 1. Authorization header
+    """从请求中提取代理 token。"""
     auth = request.headers.get("Authorization", "")
     if auth.startswith("Bearer "):
         return auth[7:]
-    # 2. body 中的 api_key 字段
     if body and body.get("api_key"):
         return body["api_key"]
     return None
+
+
+def get_token_row_or_401(token_value, service):
+    if not token_value:
+        raise HTTPException(status_code=401, detail="Missing API token")
+    token_row = db.get_token_by_value(token_value)
+    if not token_row or token_row["service"] != service:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    return token_row
 
 
 def parse_usage_number(value):
@@ -84,7 +105,7 @@ def is_usage_sync_stale(key_row, ttl_seconds=USAGE_SYNC_TTL_SECONDS):
     return (datetime.now(timezone.utc) - synced_at).total_seconds() >= ttl_seconds
 
 
-async def fetch_remote_usage(key_value):
+async def fetch_remote_usage_tavily(key_value):
     resp = await http_client.get(
         f"{TAVILY_API_BASE}/usage",
         headers={"Authorization": f"Bearer {key_value}"},
@@ -101,30 +122,95 @@ async def fetch_remote_usage(key_value):
     return resp.json()
 
 
-def normalize_usage_payload(payload):
-    key_info = payload.get("key") or {}
-    account_info = payload.get("account") or {}
+async def fetch_remote_usage_firecrawl(key_value):
+    headers = {"Authorization": f"Bearer {key_value}"}
+    current_resp, history_resp = await asyncio.gather(
+        http_client.get(f"{FIRECRAWL_API_BASE}/v2/team/credit-usage", headers=headers),
+        http_client.get(
+            f"{FIRECRAWL_API_BASE}/v2/team/credit-usage/historical",
+            params={"byApiKey": "true"},
+            headers=headers,
+        ),
+    )
 
-    key_used = parse_usage_number(key_info.get("usage"))
-    key_limit = parse_usage_number(key_info.get("limit"))
-    account_used = parse_usage_number(account_info.get("plan_usage"))
-    account_limit = parse_usage_number(account_info.get("plan_limit"))
+    for resp in (current_resp, history_resp):
+        if resp.status_code != 200:
+            detail = resp.text.strip()[:200] or f"HTTP {resp.status_code}"
+            raise HTTPException(status_code=resp.status_code, detail=detail)
 
     return {
-        "key_used": key_used,
-        "key_limit": key_limit,
-        "key_remaining": compute_remaining(key_limit, key_used),
-        "account_plan": (account_info.get("current_plan") or "").strip(),
+        "current": current_resp.json(),
+        "historical": history_resp.json(),
+    }
+
+
+def normalize_usage_payload(service, payload):
+    if service == "tavily":
+        key_info = payload.get("key") or {}
+        account_info = payload.get("account") or {}
+
+        key_used = parse_usage_number(key_info.get("usage"))
+        key_limit = parse_usage_number(key_info.get("limit"))
+        account_used = parse_usage_number(account_info.get("plan_usage"))
+        account_limit = parse_usage_number(account_info.get("plan_limit"))
+
+        return {
+            "key_used": key_used,
+            "key_limit": key_limit,
+            "key_remaining": compute_remaining(key_limit, key_used),
+            "account_plan": (account_info.get("current_plan") or "").strip(),
+            "account_used": account_used,
+            "account_limit": account_limit,
+            "account_remaining": compute_remaining(account_limit, account_used),
+        }
+
+    current_data = (payload.get("current") or {}).get("data") or {}
+    history_periods = (payload.get("historical") or {}).get("periods") or []
+    if history_periods:
+        latest_period = max(
+            history_periods,
+            key=lambda item: ((item.get("endDate") or ""), (item.get("startDate") or "")),
+        )
+        current_period_rows = [
+            item for item in history_periods
+            if item.get("startDate") == latest_period.get("startDate")
+            and item.get("endDate") == latest_period.get("endDate")
+        ]
+    else:
+        current_period_rows = []
+
+    account_remaining = parse_usage_number(current_data.get("remainingCredits"))
+    plan_credits = parse_usage_number(current_data.get("planCredits"))
+    account_used = sum(parse_usage_number(item.get("creditsUsed")) or 0 for item in current_period_rows)
+    account_limit = None
+    if account_remaining is not None:
+        account_limit = account_remaining + account_used
+
+    if plan_credits is None:
+        account_plan = "Firecrawl"
+    else:
+        account_plan = f"Plan credits {plan_credits}"
+
+    return {
+        "key_used": None,
+        "key_limit": None,
+        "key_remaining": None,
+        "account_plan": account_plan,
         "account_used": account_used,
         "account_limit": account_limit,
-        "account_remaining": compute_remaining(account_limit, account_used),
+        "account_remaining": account_remaining,
     }
 
 
 async def sync_usage_for_key_row(key_row):
+    service = key_row.get("service") or "tavily"
     try:
-        payload = await fetch_remote_usage(key_row["key"])
-        normalized = normalize_usage_payload(payload)
+        if service == "firecrawl":
+            payload = await fetch_remote_usage_firecrawl(key_row["key"])
+        else:
+            payload = await fetch_remote_usage_tavily(key_row["key"])
+
+        normalized = normalize_usage_payload(service, payload)
         db.update_key_remote_usage(
             key_row["id"],
             key_used=normalized["key_used"],
@@ -144,14 +230,14 @@ async def sync_usage_for_key_row(key_row):
         return {"key_id": key_row["id"], "status": "error", "detail": str(exc)}
 
 
-async def sync_usage_cache(force=False, key_id=None):
+async def sync_usage_cache(force=False, key_id=None, service=None):
     rows = []
     if key_id is not None:
         row = db.get_key_by_id(key_id)
-        if row:
+        if row and (service is None or row["service"] == service):
             rows = [dict(row)]
     else:
-        rows = [dict(row) for row in db.get_all_keys()]
+        rows = [dict(row) for row in db.get_all_keys(service)]
 
     if not rows:
         return {"requested": 0, "synced": 0, "skipped": 0, "errors": 0}
@@ -179,8 +265,8 @@ async def sync_usage_cache(force=False, key_id=None):
 
 def build_real_quota_summary(keys):
     synced_keys = [
-        k for k in keys
-        if k.get("usage_key_used") is not None or k.get("usage_account_used") is not None
+        key for key in keys
+        if key.get("usage_key_used") is not None or key.get("usage_account_used") is not None
     ]
     total_limit = 0
     total_used = 0
@@ -213,7 +299,7 @@ def build_real_quota_summary(keys):
         if synced_at and (latest_sync is None or synced_at > latest_sync):
             latest_sync = synced_at
 
-    error_count = sum(1 for k in keys if (k.get("usage_sync_error") or "").strip())
+    error_count = sum(1 for key in keys if (key.get("usage_sync_error") or "").strip())
     return {
         "synced_keys": len(synced_keys),
         "total_keys": len(keys),
@@ -227,6 +313,74 @@ def build_real_quota_summary(keys):
     }
 
 
+def mask_key_rows(keys):
+    for key in keys:
+        raw = key["key"]
+        key["key_masked"] = raw[:8] + "***" + raw[-4:] if len(raw) > 12 else raw
+    return keys
+
+
+async def build_service_dashboard(service):
+    service = get_service(service)
+    sync_result = await sync_usage_cache(force=False, service=service)
+    overview = db.get_usage_stats(service=service)
+    tokens = [dict(token) for token in db.get_all_tokens(service)]
+    for token in tokens:
+        token["stats"] = db.get_usage_stats(token_id=token["id"], service=service)
+    keys = mask_key_rows([dict(key) for key in db.get_all_keys(service)])
+    active_keys = [key for key in keys if key["active"]]
+    return {
+        "service": service,
+        "label": SERVICE_LABELS[service],
+        "overview": overview,
+        "tokens": tokens,
+        "keys": keys,
+        "keys_total": len(keys),
+        "keys_active": len(active_keys),
+        "real_quota": build_real_quota_summary(active_keys),
+        "usage_sync": sync_result,
+    }
+
+
+def build_forward_headers(request, real_key):
+    skip_headers = {
+        "authorization",
+        "content-length",
+        "host",
+        "x-admin-password",
+    }
+    headers = {
+        key: value
+        for key, value in request.headers.items()
+        if key.lower() not in skip_headers
+    }
+    headers["Authorization"] = f"Bearer {real_key}"
+    return headers
+
+
+async def parse_json_body(request):
+    raw_body = await request.body()
+    if not raw_body:
+        return raw_body, None
+    content_type = request.headers.get("content-type", "").lower()
+    if "application/json" not in content_type:
+        return raw_body, None
+    try:
+        return raw_body, json.loads(raw_body.decode("utf-8"))
+    except Exception:
+        return raw_body, None
+
+
+def forward_raw_response(resp):
+    """尽量保留上游返回格式，避免把非 JSON Firecrawl 响应再包一层。"""
+    content_type = resp.headers.get("content-type", "")
+    return Response(
+        content=resp.content,
+        status_code=resp.status_code,
+        media_type=content_type or None,
+    )
+
+
 # ═══ 启动 ═══
 
 @app.on_event("startup")
@@ -234,56 +388,96 @@ def startup():
     db.init_db()
 
 
-# ═══ 代理端点 ═══
+# ═══ Tavily 代理端点 ═══
 
 @app.post("/api/search")
 @app.post("/api/extract")
 async def proxy_tavily(request: Request):
     body = await request.json()
-    endpoint = request.url.path.replace("/api/", "")  # search or extract
+    endpoint = request.url.path.replace("/api/", "")
 
-    # 验证 token
     token_value = extract_token(request, body)
-    if not token_value:
-        raise HTTPException(status_code=401, detail="Missing API token")
+    token_row = get_token_row_or_401(token_value, "tavily")
 
-    token_row = db.get_token_by_value(token_value)
-    if not token_row:
-        raise HTTPException(status_code=401, detail="Invalid token")
-
-    # 检查配额
     ok, reason = db.check_quota(
         token_row["id"],
         token_row["hourly_limit"],
         token_row["daily_limit"],
         token_row["monthly_limit"],
+        service="tavily",
     )
     if not ok:
         raise HTTPException(status_code=429, detail=reason)
 
-    # 从 key pool 取 key
-    key_info = pool.get_next_key()
+    key_info = pool.get_next_key("tavily")
     if not key_info:
         raise HTTPException(status_code=503, detail="No available API keys")
 
-    # 替换 api_key 并转发
     body["api_key"] = key_info["key"]
     start = time.time()
     try:
         resp = await http_client.post(f"{TAVILY_API_BASE}/{endpoint}", json=body)
         latency = int((time.time() - start) * 1000)
         success = resp.status_code == 200
-
-        # 记录结果
-        pool.report_result(key_info["id"], success)
-        db.log_usage(token_row["id"], key_info["id"], endpoint, int(success), latency)
-
+        pool.report_result("tavily", key_info["id"], success)
+        db.log_usage(token_row["id"], key_info["id"], endpoint, int(success), latency, service="tavily")
         return JSONResponse(content=resp.json(), status_code=resp.status_code)
-    except Exception as e:
+    except Exception as exc:
         latency = int((time.time() - start) * 1000)
-        pool.report_result(key_info["id"], False)
-        db.log_usage(token_row["id"], key_info["id"], endpoint, 0, latency)
-        raise HTTPException(status_code=502, detail=str(e))
+        pool.report_result("tavily", key_info["id"], False)
+        db.log_usage(token_row["id"], key_info["id"], endpoint, 0, latency, service="tavily")
+        raise HTTPException(status_code=502, detail=str(exc))
+
+
+# ═══ Firecrawl 代理端点 ═══
+
+@app.api_route("/firecrawl/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
+async def proxy_firecrawl(path: str, request: Request):
+    raw_body, body_json = await parse_json_body(request)
+    token_value = extract_token(request, body_json)
+    token_row = get_token_row_or_401(token_value, "firecrawl")
+
+    ok, reason = db.check_quota(
+        token_row["id"],
+        token_row["hourly_limit"],
+        token_row["daily_limit"],
+        token_row["monthly_limit"],
+        service="firecrawl",
+    )
+    if not ok:
+        raise HTTPException(status_code=429, detail=reason)
+
+    key_info = pool.get_next_key("firecrawl")
+    if not key_info:
+        raise HTTPException(status_code=503, detail="No available API keys")
+
+    forward_content = raw_body
+    if body_json is not None and "api_key" in body_json:
+        body_json["api_key"] = key_info["key"]
+        forward_content = json.dumps(body_json).encode("utf-8")
+
+    start = time.time()
+    try:
+        resp = await http_client.request(
+            request.method,
+            f"{FIRECRAWL_API_BASE}/{path}",
+            params=dict(request.query_params),
+            content=forward_content if request.method != "GET" else None,
+            headers=build_forward_headers(request, key_info["key"]),
+        )
+        latency = int((time.time() - start) * 1000)
+        success = resp.status_code < 400
+        pool.report_result("firecrawl", key_info["id"], success)
+        db.log_usage(token_row["id"], key_info["id"], path, int(success), latency, service="firecrawl")
+        content_type = resp.headers.get("content-type", "").lower()
+        if "application/json" in content_type:
+            return JSONResponse(content=resp.json(), status_code=resp.status_code)
+        return forward_raw_response(resp)
+    except Exception as exc:
+        latency = int((time.time() - start) * 1000)
+        pool.report_result("firecrawl", key_info["id"], False)
+        db.log_usage(token_row["id"], key_info["id"], path, 0, latency, service="firecrawl")
+        raise HTTPException(status_code=502, detail=str(exc))
 
 
 # ═══ 控制台 ═══
@@ -297,43 +491,37 @@ async def console(request: Request):
 
 @app.get("/api/stats")
 async def stats(request: Request, _=Depends(verify_admin)):
-    sync_result = await sync_usage_cache(force=False)
-    all_stats = db.get_usage_stats()
-    tokens = [dict(t) for t in db.get_all_tokens()]
-    for t in tokens:
-        t["stats"] = db.get_usage_stats(t["id"])
-    keys = [dict(k) for k in db.get_all_keys()]
-    active_keys = [k for k in keys if k["active"]]
+    tavily_stats, firecrawl_stats = await asyncio.gather(
+        build_service_dashboard("tavily"),
+        build_service_dashboard("firecrawl"),
+    )
     return {
-        "overview": all_stats,
-        "tokens": tokens,
-        "keys_total": len(keys),
-        "keys_active": len(active_keys),
-        "real_quota": build_real_quota_summary(active_keys),
-        "usage_sync": sync_result,
+        "services": {
+            "tavily": tavily_stats,
+            "firecrawl": firecrawl_stats,
+        }
     }
 
 
 @app.get("/api/keys")
 async def list_keys(request: Request, _=Depends(verify_admin)):
-    keys = [dict(k) for k in db.get_all_keys()]
-    for k in keys:
-        # 脱敏显示
-        raw = k["key"]
-        k["key_masked"] = raw[:8] + "***" + raw[-4:] if len(raw) > 12 else raw
+    service = request.query_params.get("service")
+    keys = mask_key_rows([dict(key) for key in db.get_all_keys(service)])
     return {"keys": keys}
 
 
 @app.post("/api/usage/sync")
 async def sync_usage(request: Request, _=Depends(verify_admin)):
     body = await request.json() if request.headers.get("content-type", "").startswith("application/json") else {}
+    service = get_service(body.get("service"), default="tavily")
     force = bool(body.get("force", True))
     key_id = body.get("key_id")
-    result = await sync_usage_cache(force=force, key_id=key_id)
-    keys = [dict(k) for k in db.get_all_keys()]
-    active_keys = [k for k in keys if k["active"]]
+    result = await sync_usage_cache(force=force, key_id=key_id, service=service)
+    keys = [dict(key) for key in db.get_all_keys(service)]
+    active_keys = [key for key in keys if key["active"]]
     return {
         "ok": True,
+        "service": service,
         "result": result,
         "real_quota": build_real_quota_summary(active_keys),
     }
@@ -342,21 +530,24 @@ async def sync_usage(request: Request, _=Depends(verify_admin)):
 @app.post("/api/keys")
 async def add_keys(request: Request, _=Depends(verify_admin)):
     body = await request.json()
+    service = get_service(body.get("service"), default="tavily")
     if "file" in body:
-        count = db.import_keys_from_text(body["file"])
-        pool.reload()
-        return {"imported": count}
-    elif "key" in body:
-        db.add_key(body["key"], body.get("email", ""))
-        pool.reload()
-        return {"ok": True}
+        count = db.import_keys_from_text(body["file"], service=service)
+        pool.reload(service)
+        return {"imported": count, "service": service}
+    if "key" in body:
+        db.add_key(body["key"], body.get("email", ""), service=service)
+        pool.reload(service)
+        return {"ok": True, "service": service}
     raise HTTPException(status_code=400, detail="Provide 'key' or 'file'")
 
 
 @app.delete("/api/keys/{key_id}")
 async def remove_key(key_id: int, _=Depends(verify_admin)):
+    key_row = db.get_key_by_id(key_id)
     db.delete_key(key_id)
-    pool.reload()
+    if key_row:
+        pool.reload(key_row["service"])
     return {"ok": True}
 
 
@@ -364,22 +555,26 @@ async def remove_key(key_id: int, _=Depends(verify_admin)):
 async def toggle_key(key_id: int, request: Request, _=Depends(verify_admin)):
     body = await request.json()
     db.toggle_key(key_id, body.get("active", 1))
-    pool.reload()
+    key_row = db.get_key_by_id(key_id)
+    if key_row:
+        pool.reload(key_row["service"])
     return {"ok": True}
 
 
 @app.get("/api/tokens")
 async def list_tokens(request: Request, _=Depends(verify_admin)):
-    tokens = [dict(t) for t in db.get_all_tokens()]
-    for t in tokens:
-        t["stats"] = db.get_usage_stats(t["id"])
+    service = request.query_params.get("service")
+    tokens = [dict(token) for token in db.get_all_tokens(service)]
+    for token in tokens:
+        token["stats"] = db.get_usage_stats(token_id=token["id"], service=token["service"])
     return {"tokens": tokens}
 
 
 @app.post("/api/tokens")
 async def create_token(request: Request, _=Depends(verify_admin)):
     body = await request.json()
-    token = db.create_token(body.get("name", ""))
+    service = get_service(body.get("service"), default="tavily")
+    token = db.create_token(body.get("name", ""), service=service)
     return {"token": dict(token)}
 
 

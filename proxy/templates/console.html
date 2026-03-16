@@ -1,224 +1,1432 @@
 <!DOCTYPE html>
-<html lang="zh">
+<html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Tavily API Proxy</title>
+<title>Multi-Service API Proxy</title>
 <style>
-* { margin: 0; padding: 0; box-sizing: border-box; }
-body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f0f2f5; color: #1a1a2e; min-height: 100vh; }
-.container { max-width: 1200px; margin: 0 auto; padding: 24px; }
-.header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px; }
-.header-left h1 { font-size: 24px; margin-bottom: 4px; }
-.header-left .subtitle { color: #666; font-size: 14px; }
-.user-menu { position: relative; }
-.user-btn { display: flex; align-items: center; gap: 8px; padding: 8px 16px; background: #fff; border: 1px solid #ddd; border-radius: 8px; cursor: pointer; font-size: 14px; }
-.user-btn:hover { background: #f5f5f5; }
-.user-btn svg { width: 20px; height: 20px; }
-.dropdown { display: none; position: absolute; right: 0; top: 44px; background: #fff; border: 1px solid #e0e0e0; border-radius: 10px; box-shadow: 0 4px 16px rgba(0,0,0,.12); width: 280px; z-index: 100; padding: 16px; }
+:root {
+  --bg: #edf3fb;
+  --bg-soft: #f7fbff;
+  --surface: rgba(255, 255, 255, 0.84);
+  --surface-strong: rgba(255, 255, 255, 0.96);
+  --surface-muted: rgba(248, 250, 252, 0.78);
+  --text: #0f172a;
+  --text-soft: #1e293b;
+  --muted: #64748b;
+  --border: rgba(148, 163, 184, 0.18);
+  --border-strong: rgba(148, 163, 184, 0.28);
+  --shadow: 0 18px 45px rgba(15, 23, 42, 0.08);
+  --shadow-lg: 0 24px 62px rgba(15, 23, 42, 0.14);
+  --radius: 24px;
+  --radius-sm: 12px;
+  --tavily: #0f766e;
+  --tavily-soft: rgba(15, 118, 110, 0.10);
+  --firecrawl: #b45309;
+  --firecrawl-soft: rgba(180, 83, 9, 0.10);
+  --ok: #15803d;
+  --warn: #d97706;
+  --danger: #dc2626;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html { scroll-behavior: smooth; }
+
+body {
+  min-height: 100vh;
+  position: relative;
+  overflow-x: hidden;
+  font-family: "Manrope", "Avenir Next", "PingFang SC", "Microsoft YaHei", sans-serif;
+  color: var(--text);
+  background:
+    radial-gradient(circle at top left, rgba(15, 118, 110, 0.18), transparent 28%),
+    radial-gradient(circle at 85% 10%, rgba(180, 83, 9, 0.16), transparent 22%),
+    linear-gradient(180deg, var(--bg-soft) 0%, var(--bg) 100%);
+}
+
+body::before,
+body::after {
+  content: "";
+  position: fixed;
+  width: 320px;
+  height: 320px;
+  border-radius: 999px;
+  filter: blur(70px);
+  opacity: 0.45;
+  pointer-events: none;
+  z-index: 0;
+}
+
+body::before {
+  left: -120px;
+  bottom: 12vh;
+  background: rgba(15, 118, 110, 0.20);
+}
+
+body::after {
+  right: -120px;
+  top: 18vh;
+  background: rgba(180, 83, 9, 0.18);
+}
+
+.container {
+  position: relative;
+  z-index: 1;
+  max-width: 1320px;
+  margin: 0 auto;
+  padding: 24px 20px 42px;
+}
+
+.hidden { display: none !important; }
+
+.card {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.78));
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+  border-radius: var(--radius);
+  backdrop-filter: blur(18px);
+}
+
+.hero {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(320px, 0.95fr);
+  gap: 20px;
+  padding: 32px;
+  margin-bottom: 18px;
+  overflow: hidden;
+}
+
+.hero::before,
+.hero::after {
+  content: "";
+  position: absolute;
+  border-radius: 999px;
+  pointer-events: none;
+}
+
+.hero::before {
+  width: 260px;
+  height: 260px;
+  top: -120px;
+  right: 18%;
+  background: rgba(15, 118, 110, 0.14);
+  filter: blur(18px);
+}
+
+.hero::after {
+  width: 220px;
+  height: 220px;
+  bottom: -120px;
+  right: -40px;
+  background: rgba(180, 83, 9, 0.14);
+  filter: blur(12px);
+}
+
+.hero-copy,
+.hero-side {
+  position: relative;
+  z-index: 1;
+}
+
+.hero-copy h1 {
+  font-size: clamp(32px, 4.4vw, 44px);
+  line-height: 1.05;
+  margin-bottom: 12px;
+  letter-spacing: -0.03em;
+}
+
+.hero-copy p {
+  color: var(--text-soft);
+  max-width: 720px;
+  line-height: 1.75;
+  font-size: 15px;
+}
+
+.hero-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.hero-tag,
+.service-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: 999px;
+  padding: 8px 14px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.hero-tag {
+  background: rgba(255, 255, 255, 0.76);
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.48);
+  color: var(--text);
+}
+
+.service-chip[data-service="tavily"] {
+  background: var(--tavily-soft);
+  color: var(--tavily);
+  border: 1px solid rgba(15, 118, 110, 0.14);
+}
+
+.service-chip[data-service="firecrawl"] {
+  background: var(--firecrawl-soft);
+  color: var(--firecrawl);
+  border: 1px solid rgba(180, 83, 9, 0.14);
+}
+
+.hero-side {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+.hero-focus {
+  width: 100%;
+  padding: 22px;
+  border-radius: 22px;
+  border: 1px solid rgba(255, 255, 255, 0.58);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(248, 250, 252, 0.64)),
+    radial-gradient(circle at top right, rgba(15, 118, 110, 0.10), transparent 42%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.72),
+    0 18px 45px rgba(15, 23, 42, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.hero-focus-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.hero-focus-kicker {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.hero-focus-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.06);
+  color: var(--text-soft);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.hero-focus-name {
+  font-size: 30px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+}
+
+.hero-focus-desc {
+  color: var(--muted);
+  line-height: 1.7;
+  font-size: 14px;
+}
+
+.hero-focus-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.hero-focus-metric {
+  padding: 14px;
+  border-radius: 18px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.hero-focus-metric .label {
+  color: var(--muted);
+  font-size: 11px;
+  margin-bottom: 6px;
+}
+
+.hero-focus-metric .value {
+  font-size: 24px;
+  line-height: 1.05;
+  font-weight: 800;
+}
+
+.hero-focus-foot {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+.user-menu {
+  position: relative;
+  align-self: flex-end;
+}
+
+.user-btn,
+.btn {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-strong);
+  color: var(--text);
+  cursor: pointer;
+  transition: transform .18s ease, box-shadow .18s ease, background .18s ease;
+}
+
+.user-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  font-size: 14px;
+  min-width: 130px;
+  justify-content: center;
+}
+
+.btn {
+  padding: 9px 14px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.btn:hover,
+.user-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+}
+
+.btn-primary {
+  color: #fff;
+  border-color: transparent;
+  background: linear-gradient(135deg, #0f172a, #334155);
+}
+
+.btn-primary:hover {
+  background: linear-gradient(135deg, #1e293b, #475569);
+}
+
+.btn-soft {
+  background: rgba(15, 23, 42, 0.04);
+}
+
+.btn-danger {
+  color: var(--danger);
+  border-color: rgba(220, 38, 38, 0.25);
+  background: rgba(220, 38, 38, 0.04);
+}
+
+.btn-sm {
+  padding: 6px 10px;
+  border-radius: 10px;
+  font-size: 12px;
+}
+
+.dropdown {
+  position: absolute;
+  top: calc(100% + 12px);
+  right: 0;
+  width: 300px;
+  padding: 18px;
+  display: none;
+  z-index: 20;
+}
+
 .dropdown.show { display: block; }
-.dropdown h3 { font-size: 14px; margin-bottom: 12px; color: #333; }
-.dropdown .pwd-row { display: flex; gap: 8px; margin-bottom: 12px; }
-.dropdown .pwd-row input { flex: 1; padding: 6px 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 13px; }
-.dropdown .pwd-row button { white-space: nowrap; }
-.dropdown-divider { height: 1px; background: #eee; margin: 12px 0; }
-.dropdown .logout-btn { display: block; width: 100%; text-align: center; padding: 8px; color: #e74c3c; border: 1px solid #e74c3c; border-radius: 6px; cursor: pointer; font-size: 13px; background: #fff; }
-.dropdown .logout-btn:hover { background: #fdf0ef; }
-.card { background: #fff; border-radius: 12px; padding: 24px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
-.card h2 { font-size: 18px; margin-bottom: 6px; }
-.card .desc { color: #888; font-size: 13px; margin-bottom: 16px; }
-.stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
-.stat-box { border: 1px solid #e8e8e8; border-radius: 8px; padding: 14px; }
-.stat-box .label { font-size: 13px; color: #888; margin-bottom: 4px; }
-.stat-box .value { font-size: 28px; font-weight: 700; }
-.stat-box .value span { font-size: 16px; color: #888; font-weight: 400; }
-.stat-box .remain { font-size: 13px; color: #1a8a1a; margin-top: 4px; }
-table { width: 100%; border-collapse: collapse; font-size: 14px; }
-th { text-align: left; padding: 10px 12px; color: #888; font-weight: 500; border-bottom: 1px solid #eee; }
-td { padding: 10px 12px; border-bottom: 1px solid #f5f5f5; }
-.btn { display: inline-block; padding: 6px 16px; border-radius: 6px; border: 1px solid #ddd; background: #fff; cursor: pointer; font-size: 13px; }
-.btn:hover { background: #f5f5f5; }
-.btn-primary { background: #1a1a6e; color: #fff; border-color: #1a1a6e; }
-.btn-primary:hover { background: #2a2a8e; }
-.btn-danger { color: #e74c3c; border-color: #e74c3c; }
-.btn-danger:hover { background: #fdf0ef; }
-.btn-sm { padding: 4px 10px; font-size: 12px; }
-input[type="text"], input[type="password"], textarea { width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; }
-textarea { min-height: 80px; resize: vertical; }
-.flex { display: flex; gap: 8px; align-items: center; }
-.mt { margin-top: 12px; }
-.tag { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 12px; }
-.tag-ok { background: #e8f5e9; color: #2e7d32; }
-.tag-off { background: #fce4ec; color: #c62828; }
-.mono { font-family: 'SF Mono', Monaco, Consolas, monospace; font-size: 13px; }
-.quota-bar { height: 4px; background: #e8e8e8; border-radius: 2px; margin-top: 3px; }
-.quota-bar-fill { height: 100%; border-radius: 2px; background: #1a8a1a; transition: width .3s; }
-.quota-bar-fill.warn { background: #f39c12; }
-.quota-bar-fill.danger { background: #e74c3c; }
-#login-box { max-width: 360px; margin: 120px auto; }
-.hidden { display: none; }
-.code-block { background: #1a1a2e; color: #e0e0e0; border-radius: 8px; padding: 16px; font-family: 'SF Mono', Monaco, Consolas, monospace; font-size: 13px; line-height: 1.6; overflow-x: auto; position: relative; }
-.code-block .comment { color: #6a9955; }
-.code-block .string { color: #ce9178; }
-.code-block .key { color: #9cdcfe; }
-.copy-code-btn { position: absolute; top: 8px; right: 8px; padding: 4px 10px; font-size: 11px; background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.2); color: #ccc; border-radius: 4px; cursor: pointer; }
-.copy-code-btn:hover { background: rgba(255,255,255,.2); }
+
+.dropdown h3 {
+  font-size: 14px;
+  margin-bottom: 12px;
+}
+
+.dropdown .pwd-row {
+  display: flex;
+  gap: 10px;
+}
+
+.dropdown .logout-btn {
+  width: 100%;
+  margin-top: 14px;
+}
+
+.summary-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.switcher-shell {
+  position: relative;
+  overflow: hidden;
+  padding: 22px;
+  margin-bottom: 18px;
+}
+
+.switcher-shell::after {
+  content: "";
+  position: absolute;
+  right: -36px;
+  top: -72px;
+  width: 200px;
+  height: 200px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.04);
+}
+
+.switcher-head {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  align-items: flex-end;
+  margin-bottom: 16px;
+}
+
+.switcher-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.switcher-head h2 {
+  margin-top: 8px;
+  font-size: 26px;
+  letter-spacing: -0.03em;
+}
+
+.switcher-head p {
+  margin-top: 8px;
+  color: var(--muted);
+  line-height: 1.65;
+  max-width: 720px;
+}
+
+.switcher-note {
+  position: relative;
+  z-index: 1;
+  flex: 0 0 auto;
+  align-self: flex-start;
+  padding: 10px 14px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--surface-muted);
+  color: var(--text-soft);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.service-switcher {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+}
+
+.service-toggle {
+  position: relative;
+  overflow: hidden;
+  text-align: left;
+  padding: 20px;
+  border-radius: 22px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.90), rgba(248, 250, 252, 0.78)),
+    radial-gradient(circle at top right, rgba(15, 23, 42, 0.04), transparent 42%);
+  cursor: pointer;
+  transition:
+    transform .18s ease,
+    box-shadow .18s ease,
+    border-color .18s ease,
+    background .18s ease;
+}
+
+.service-toggle::before {
+  content: "";
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  top: 0;
+  height: 4px;
+  border-radius: 0 0 999px 999px;
+  transform: scaleX(0.28);
+  transform-origin: left center;
+  opacity: 0;
+  transition: transform .18s ease, opacity .18s ease;
+}
+
+.service-toggle::after {
+  content: "";
+  position: absolute;
+  inset: auto -36px -60px auto;
+  width: 170px;
+  height: 170px;
+  border-radius: 999px;
+  opacity: .60;
+}
+
+.service-toggle:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 20px 44px rgba(15, 23, 42, 0.12);
+}
+
+.service-toggle[data-service="tavily"]::before {
+  background: linear-gradient(90deg, #0f766e, #14b8a6);
+}
+
+.service-toggle[data-service="firecrawl"]::before {
+  background: linear-gradient(90deg, #b45309, #fb923c);
+}
+
+.service-toggle[data-service="tavily"]::after {
+  background: var(--tavily-soft);
+}
+
+.service-toggle[data-service="firecrawl"]::after {
+  background: var(--firecrawl-soft);
+}
+
+.service-toggle.is-active[data-service="tavily"] {
+  border-color: rgba(15, 118, 110, 0.22);
+  background:
+    linear-gradient(135deg, rgba(15, 118, 110, 0.16), rgba(255, 255, 255, 0.94)),
+    radial-gradient(circle at top right, rgba(15, 118, 110, 0.12), transparent 40%);
+  box-shadow:
+    0 24px 56px rgba(15, 23, 42, 0.14),
+    0 0 0 1px rgba(15, 118, 110, 0.10);
+}
+
+.service-toggle.is-active[data-service="firecrawl"] {
+  border-color: rgba(180, 83, 9, 0.22);
+  background:
+    linear-gradient(135deg, rgba(180, 83, 9, 0.16), rgba(255, 255, 255, 0.94)),
+    radial-gradient(circle at top right, rgba(180, 83, 9, 0.12), transparent 40%);
+  box-shadow:
+    0 24px 56px rgba(15, 23, 42, 0.14),
+    0 0 0 1px rgba(180, 83, 9, 0.10);
+}
+
+.service-toggle.is-active::before {
+  opacity: 1;
+  transform: scaleX(1);
+}
+
+.service-toggle-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.service-toggle-title {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.service-toggle-title strong {
+  font-size: 24px;
+  letter-spacing: -0.03em;
+}
+
+.service-toggle-title span {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.service-toggle-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(148, 163, 184, 0.14);
+}
+
+.service-toggle.is-active .service-toggle-status {
+  color: var(--text);
+  background: rgba(15, 23, 42, 0.08);
+}
+
+.service-toggle-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.service-toggle-metric {
+  position: relative;
+  z-index: 1;
+  padding: 12px;
+  border-radius: 16px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  background: rgba(255, 255, 255, 0.62);
+}
+
+.service-toggle-metric .label {
+  color: var(--muted);
+  font-size: 11px;
+  margin-bottom: 4px;
+}
+
+.service-toggle-metric .value {
+  font-size: 22px;
+  font-weight: 800;
+  line-height: 1.1;
+}
+
+.service-toggle-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.service-toggle-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.06);
+  color: var(--text-soft);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.service-toggle-foot {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.service-toggle-arrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+  color: var(--text-soft);
+  font-weight: 700;
+}
+
+.summary-box,
+.stat-box {
+  position: relative;
+  overflow: hidden;
+  padding: 18px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.88), rgba(255, 255, 255, 0.72));
+}
+
+.summary-box::after,
+.stat-box::after {
+  content: "";
+  position: absolute;
+  width: 110px;
+  height: 110px;
+  right: -28px;
+  bottom: -48px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.03);
+}
+
+.summary-box .label,
+.stat-box .label {
+  position: relative;
+  z-index: 1;
+  color: var(--muted);
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+
+.summary-box .value,
+.stat-box .value {
+  position: relative;
+  z-index: 1;
+  font-size: 30px;
+  font-weight: 800;
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+}
+
+.summary-box .hint,
+.stat-box .hint {
+  position: relative;
+  z-index: 1;
+  color: var(--muted);
+  font-size: 12px;
+  margin-top: 6px;
+  line-height: 1.5;
+}
+
+.service-panel {
+  position: relative;
+  margin-bottom: 18px;
+  overflow: hidden;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(248, 250, 252, 0.82));
+}
+
+.service-panel.is-inactive {
+  display: none;
+}
+
+.service-panel[data-service="tavily"] {
+  border-top: 6px solid var(--tavily);
+}
+
+.service-panel[data-service="firecrawl"] {
+  border-top: 6px solid var(--firecrawl);
+}
+
+.service-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 28px 28px 12px;
+  align-items: stretch;
+}
+
+.service-head h2 {
+  font-size: 32px;
+  margin: 12px 0 8px;
+  letter-spacing: -0.03em;
+}
+
+.service-head p {
+  color: var(--muted);
+  line-height: 1.6;
+  max-width: 760px;
+}
+
+.service-tools {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: stretch;
+  min-width: 290px;
+  padding: 16px;
+  border-radius: 18px;
+  border: 1px solid var(--border);
+  background: var(--surface-muted);
+}
+
+.service-sync-meta {
+  font-size: 12px;
+  color: var(--muted);
+  text-align: left;
+  max-width: 360px;
+  line-height: 1.5;
+}
+
+.service-body {
+  padding: 0 28px 28px;
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.section-grid {
+  display: grid;
+  grid-template-columns: 1.05fr 1.25fr;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.subcard {
+  padding: 18px;
+  border-radius: 18px;
+  border: 1px solid var(--border);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.84), rgba(255, 255, 255, 0.72));
+}
+
+.subcard h3 {
+  font-size: 17px;
+  margin-bottom: 6px;
+}
+
+.subcard .desc {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.6;
+  margin-bottom: 14px;
+}
+
+.inline-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  color: var(--muted);
+  font-size: 12px;
+  margin-bottom: 12px;
+}
+
+.mono {
+  font-family: "SFMono-Regular", Menlo, Consolas, monospace;
+}
+
+.api-shell {
+  position: relative;
+}
+
+.code-toolbar {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.code-toolbar .endpoint {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.code-block {
+  position: relative;
+  padding: 16px;
+  border-radius: 14px;
+  background: #0f172a;
+  color: #e2e8f0;
+  font-size: 13px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.form-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+input[type="text"],
+input[type="password"],
+textarea {
+  width: 100%;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.26);
+  background: rgba(255, 255, 255, 0.90);
+  padding: 10px 12px;
+  font-size: 14px;
+  color: var(--text);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.60);
+}
+
+textarea {
+  min-height: 96px;
+  resize: vertical;
+}
+
+.input-grow { flex: 1 1 220px; }
+
+.toggle-area {
+  margin-bottom: 14px;
+}
+
+.table-wrap {
+  overflow-x: auto;
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.72);
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+th, td {
+  padding: 12px;
+  border-bottom: 1px solid rgba(226, 232, 240, 0.9);
+  vertical-align: top;
+}
+
+th {
+  color: var(--muted);
+  font-weight: 600;
+  text-align: left;
+  background: rgba(248, 250, 252, 0.95);
+}
+
+tr:last-child td { border-bottom: none; }
+
+.table-note {
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.table-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.quota-bar {
+  height: 6px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(148, 163, 184, 0.18);
+  margin-top: 6px;
+}
+
+.quota-bar-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--ok);
+}
+
+.quota-bar-fill.warn { background: var(--warn); }
+.quota-bar-fill.danger { background: var(--danger); }
+
+.tag {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 4px 8px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.tag-ok {
+  color: var(--ok);
+  background: rgba(21, 128, 61, 0.10);
+}
+
+.tag-off {
+  color: var(--danger);
+  background: rgba(220, 38, 38, 0.10);
+}
+
+.muted { color: var(--muted); }
+
+.auth {
+  width: min(420px, calc(100% - 32px));
+  margin: 120px auto;
+  padding: 28px;
+}
+
+.auth h2 {
+  font-size: 28px;
+  margin-bottom: 10px;
+}
+
+.auth p {
+  color: var(--muted);
+  line-height: 1.7;
+  margin-bottom: 18px;
+}
+
+.auth .stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.login-error {
+  color: var(--danger);
+  font-size: 13px;
+  margin-top: 8px;
+}
+
+@media (max-width: 1080px) {
+  .hero,
+  .service-head,
+  .section-grid {
+    grid-template-columns: 1fr;
+    display: grid;
+  }
+
+  .switcher-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .hero-side .user-menu {
+    align-self: flex-start;
+  }
+
+  .service-tools {
+    min-width: 0;
+  }
+
+  .service-sync-meta {
+    max-width: none;
+  }
+}
+
+@media (max-width: 720px) {
+  .container { padding: 18px 14px 28px; }
+  .hero,
+  .service-head,
+  .service-body { padding-left: 18px; padding-right: 18px; }
+  .switcher-shell { padding: 18px; }
+  .service-panel .service-body { padding-bottom: 18px; }
+  .hero-focus-metrics,
+  .service-toggle-grid { grid-template-columns: 1fr; }
+  .service-toggle-foot { align-items: flex-start; flex-direction: column; }
+  th, td { padding: 10px; }
+}
 </style>
 </head>
 <body>
 
-<!-- Login -->
-<div id="login-box" class="card">
-  <h2>Tavily API Proxy</h2>
-  <p class="desc">输入管理密码进入控制台</p>
-  <input type="password" id="pwd-input" placeholder="密码" onkeydown="if(event.key==='Enter')doLogin()">
-  <button class="btn btn-primary mt" style="width:100%" onclick="doLogin()">登录</button>
-  <p id="login-err" style="color:#e74c3c;font-size:13px;margin-top:8px" class="hidden"></p>
+<div id="login-box" class="auth card">
+  <h2>多服务 API Proxy</h2>
+  <p>一个控制台同时管理 Tavily 和 Firecrawl 的独立 Key 池、独立 Token，以及各自的真实额度同步。</p>
+  <div class="stack">
+    <input type="password" id="pwd-input" placeholder="输入管理密码" onkeydown="if(event.key==='Enter') doLogin()">
+    <button class="btn btn-primary" onclick="doLogin()">登录控制台</button>
+  </div>
+  <p id="login-err" class="login-error hidden"></p>
 </div>
 
-<!-- Dashboard -->
 <div id="dashboard" class="hidden">
-<div class="container">
-  <div class="header">
-    <div class="header-left">
-      <h1>控制台</h1>
-      <p class="subtitle">Tavily API Proxy · Key 池管理</p>
-    </div>
-    <div class="user-menu">
-      <div class="user-btn" onclick="toggleDropdown()">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a6 6 0 0112 0v1"/></svg>
-        Admin
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><path d="M6 9l6 6 6-6"/></svg>
-      </div>
-      <div class="dropdown" id="user-dropdown">
-        <h3>修改密码</h3>
-        <div class="pwd-row">
-          <input type="password" id="new-pwd" placeholder="输入新密码">
-          <button class="btn btn-primary btn-sm" onclick="changePwd()">确认</button>
+  <div class="container">
+    <header class="hero card">
+      <div class="hero-copy">
+        <div class="hero-tags">
+          <span class="hero-tag">双服务隔离</span>
+          <span class="hero-tag">独立 Token 池</span>
+          <span class="hero-tag">真实额度同步</span>
         </div>
-        <div class="dropdown-divider"></div>
-        <button class="logout-btn" onclick="logout()">退出登录</button>
+        <h1>多服务代理控制台</h1>
+        <p>当前代理把 Tavily 和 Firecrawl 分开管理：邮箱前缀、上传服务标记、Key 池、Token 池、额度同步和接口示例都按服务拆开，不再混用同一套存储和展示。</p>
       </div>
-    </div>
-  </div>
+      <div class="hero-side">
+        <div class="hero-focus" id="hero-focus"></div>
+        <div class="user-menu">
+          <button class="user-btn" onclick="toggleDropdown()">
+            Admin
+            <span class="muted">密码 / 退出</span>
+          </button>
+          <div class="dropdown card" id="user-dropdown">
+            <h3>修改控制台密码</h3>
+            <div class="pwd-row">
+              <input type="password" id="new-pwd" placeholder="新密码（至少 4 位）">
+              <button class="btn btn-primary" onclick="changePwd()">保存</button>
+            </div>
+            <button class="btn btn-danger logout-btn" onclick="logout()">退出登录</button>
+          </div>
+        </div>
+      </div>
+    </header>
 
-  <!-- Overview -->
-  <div class="card">
-    <h2>用量概览</h2>
-    <p class="desc">真实额度来自 Tavily 官方 /usage 接口，代理统计来自本地 usage log</p>
-    <div class="flex mt" style="margin-bottom:12px;justify-content:space-between;flex-wrap:wrap">
-      <div id="usage-sync-meta" style="font-size:12px;color:#666"></div>
-      <button class="btn" id="sync-usage-btn" onclick="syncUsage(true)">同步 Tavily 额度</button>
-    </div>
-    <div class="stats-grid" id="overview-stats"></div>
-  </div>
+    <section class="summary-strip" id="global-summary"></section>
 
-  <!-- API Usage -->
-  <div class="card">
-    <h2>调用方式</h2>
-    <p class="desc">兼容 Tavily 官方 API，替换 base URL 和 api_key 即可</p>
-    <div style="margin-bottom:12px">
-      <div style="font-size:13px;color:#666;margin-bottom:6px">API 地址</div>
-      <div class="mono" style="font-size:14px;padding:8px 12px;background:#f5f5f5;border-radius:6px;display:inline-block" id="api-base-url"></div>
-    </div>
-    <div style="font-size:13px;color:#666;margin-bottom:6px">调用示例 (curl)</div>
-    <div class="code-block" id="curl-example">
-      <button class="copy-code-btn" onclick="copyCurl()">复制</button>
-    </div>
-  </div>
+    <section class="switcher-shell card">
+      <div class="switcher-head">
+        <div>
+          <span class="switcher-eyebrow">顶部切换区</span>
+          <h2>服务工作台切换</h2>
+          <p>顶部直接切换 Tavily / Firecrawl，下面只保留当前服务的完整详情。这样进入页面后，两个池子都在首屏范围内更容易找到。</p>
+        </div>
+        <div class="switcher-note" id="switcher-note">已记住上次打开的栏目</div>
+      </div>
+      <section class="service-switcher" id="service-switcher"></section>
+    </section>
 
-  <!-- Tokens -->
-  <div class="card">
-    <h2>Token 列表</h2>
-    <p class="desc">代理访问 Token，分配给应用使用</p>
-    <div class="flex mt" style="margin-bottom:12px">
-      <input type="text" id="token-name" placeholder="Token 备注名（可选）" style="max-width:240px">
-      <button class="btn btn-primary" onclick="createToken()">创建 Token</button>
-    </div>
-    <div style="overflow-x:auto">
-      <table id="tokens-table"><thead><tr><th>Token</th><th>备注</th><th>配额 / 余额</th><th>用量统计</th><th>操作</th></tr></thead><tbody></tbody></table>
-    </div>
+    <div id="services-root"></div>
   </div>
-
-  <!-- Keys -->
-  <div class="card">
-    <h2>API Key 池</h2>
-    <p class="desc">管理 Tavily API Key，支持批量导入</p>
-    <div class="flex mt" style="margin-bottom:12px;flex-wrap:wrap">
-      <input type="text" id="single-key" placeholder="tvly-xxx" style="max-width:360px">
-      <button class="btn btn-primary" onclick="addSingleKey()">添加</button>
-      <button class="btn" onclick="document.getElementById('import-area').classList.toggle('hidden')">批量导入</button>
-    </div>
-    <div id="import-area" class="hidden" style="margin-bottom:12px">
-      <textarea id="import-text" placeholder="粘贴 api_keys.md 内容，每行一条&#10;格式: email,password,tvly-xxx,timestamp;"></textarea>
-      <button class="btn btn-primary mt" onclick="importKeys()">导入</button>
-    </div>
-    <div style="overflow-x:auto">
-      <table id="keys-table"><thead><tr><th>ID</th><th>Key</th><th>邮箱</th><th>真实额度</th><th>账户计划</th><th>代理统计</th><th>状态</th><th>操作</th></tr></thead><tbody></tbody></table>
-    </div>
-  </div>
-
-</div>
 </div>
 
 <script>
+const STORAGE_KEY = 'multi_service_proxy_pwd';
+const LEGACY_STORAGE_KEY = 'tavily_proxy_pwd';
+const ACTIVE_SERVICE_KEY = 'multi_service_proxy_active_service';
 const API = '';
-let PWD = localStorage.getItem('tavily_proxy_pwd') || '';
+const SERVICE_META = {
+  tavily: {
+    label: 'Tavily',
+    emailPrefix: 'tavily-',
+    tokenPrefix: 'tvly-',
+    keyPlaceholder: 'tvly-xxxxxxxx',
+    importPlaceholder: '支持粘贴 email,password,tvly-xxx,timestamp 或仅 tvly-xxx，每行一条',
+    quotaSource: '真实额度来自 Tavily 官方 GET /usage',
+    routeHint: '代理端点: POST /api/search, POST /api/extract',
+    syncButton: '同步 Tavily 额度',
+  },
+  firecrawl: {
+    label: 'Firecrawl',
+    emailPrefix: 'fc-',
+    tokenPrefix: 'fctk-',
+    keyPlaceholder: 'fc-xxxxxxxx',
+    importPlaceholder: '支持粘贴 email,password,fc-xxx,timestamp 或仅 fc-xxx，每行一条',
+    quotaSource: '真实额度来自 Firecrawl /v2/team/credit-usage',
+    routeHint: '代理端点: /firecrawl/*，例如 POST /firecrawl/v2/scrape',
+    syncButton: '同步 Firecrawl 额度',
+  },
+};
+
+let PWD = localStorage.getItem(STORAGE_KEY) || localStorage.getItem(LEGACY_STORAGE_KEY) || '';
+let activeService = localStorage.getItem(ACTIVE_SERVICE_KEY) || 'tavily';
+let latestServices = {};
 
 function headers() {
-  return { 'Content-Type': 'application/json', 'X-Admin-Password': PWD };
+  return {
+    'Content-Type': 'application/json',
+    'X-Admin-Password': PWD,
+  };
 }
 
 async function api(method, path, body) {
-  const opts = { method, headers: headers() };
-  if (body) opts.body = JSON.stringify(body);
-  const r = await fetch(API + path, opts);
-  if (r.status === 401) { logout(); throw new Error('Unauthorized'); }
-  return r.json();
+  const options = { method, headers: headers() };
+  if (body !== undefined) {
+    options.body = JSON.stringify(body);
+  }
+
+  const response = await fetch(API + path, options);
+  const text = await response.text();
+  let payload = {};
+  try {
+    payload = text ? JSON.parse(text) : {};
+  } catch {
+    payload = text ? { detail: text } : {};
+  }
+
+  if (response.status === 401) {
+    logout();
+    throw new Error('Unauthorized');
+  }
+
+  if (!response.ok) {
+    throw new Error(payload.detail || `HTTP ${response.status}`);
+  }
+
+  return payload;
 }
 
-function doLogin() {
-  PWD = document.getElementById('pwd-input').value;
-  localStorage.setItem('tavily_proxy_pwd', PWD);
-  api('GET', '/api/stats').then(() => {
-    document.getElementById('login-box').classList.add('hidden');
-    document.getElementById('dashboard').classList.remove('hidden');
-    refresh();
-  }).catch(() => {
-    document.getElementById('login-err').textContent = '密码错误';
-    document.getElementById('login-err').classList.remove('hidden');
+function renderServiceShells() {
+  const html = Object.keys(SERVICE_META).map((service) => {
+    const meta = SERVICE_META[service];
+    return `
+      <section class="service-panel card" data-service="${service}">
+        <div class="service-head">
+          <div>
+            <span class="service-chip" data-service="${service}">${meta.label}</span>
+            <h2>${meta.label} 栏目</h2>
+            <p>邮箱别名前缀 ${meta.emailPrefix}，代理 Token 前缀 ${meta.tokenPrefix}。${meta.quotaSource}。</p>
+          </div>
+          <div class="service-tools">
+            <div id="sync-meta-${service}" class="service-sync-meta">等待同步状态...</div>
+            <button class="btn btn-soft" id="sync-btn-${service}" onclick="syncUsage('${service}', true)">${meta.syncButton}</button>
+          </div>
+        </div>
+        <div class="service-body">
+          <div class="stats-grid" id="overview-${service}"></div>
+
+          <div class="section-grid">
+            <div class="subcard api-shell">
+              <h3>调用方式</h3>
+              <p class="desc">${meta.routeHint}</p>
+              <div class="inline-meta">
+                <span>Base URL: <b class="mono" id="base-url-${service}"></b></span>
+                <span>代理 Token 前缀: <b class="mono">${meta.tokenPrefix}</b></span>
+              </div>
+              <div class="code-toolbar">
+                <div class="endpoint">${meta.quotaSource}</div>
+                <button class="btn btn-sm" onclick="copyCode('curl-example-${service}', this)">复制示例</button>
+              </div>
+              <pre class="code-block mono" id="curl-example-${service}"></pre>
+            </div>
+
+            <div class="subcard">
+              <h3>Token 池</h3>
+              <p class="desc">给业务侧发放代理 Token。Tavily 和 Firecrawl 分开创建、分开限流、分开统计。</p>
+              <div class="form-row">
+                <input class="input-grow" type="text" id="token-name-${service}" placeholder="Token 备注（可选）">
+                <button class="btn btn-primary" onclick="createToken('${service}')">创建 ${meta.label} Token</button>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Token</th>
+                      <th>备注</th>
+                      <th>配额 / 剩余</th>
+                      <th>代理统计</th>
+                      <th>操作</th>
+                    </tr>
+                  </thead>
+                  <tbody id="tokens-body-${service}"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <div class="subcard">
+            <h3>API Key 池</h3>
+            <p class="desc">服务隔离存储，导入时会按当前栏目写入数据库。不会再和另一种服务共用一套 Key 池。</p>
+            <div class="form-row">
+              <input class="input-grow mono" type="text" id="single-key-${service}" placeholder="${meta.keyPlaceholder}">
+              <button class="btn btn-primary" onclick="addSingleKey('${service}')">添加 ${meta.label} Key</button>
+              <button class="btn btn-soft" onclick="toggleImport('${service}')">批量导入</button>
+            </div>
+            <div id="import-wrap-${service}" class="toggle-area hidden">
+              <textarea id="import-text-${service}" placeholder="${meta.importPlaceholder}"></textarea>
+              <div class="form-row" style="margin-top:10px">
+                <button class="btn btn-primary" onclick="importKeys('${service}')">导入到 ${meta.label} 池</button>
+              </div>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Key</th>
+                    <th>邮箱</th>
+                    <th>Key 额度</th>
+                    <th>账户额度</th>
+                    <th>代理统计</th>
+                    <th>状态</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody id="keys-body-${service}"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+    `;
+  }).join('');
+
+  document.getElementById('services-root').innerHTML = html;
+  renderHeroFocus({});
+  renderServiceSwitcher({});
+  applyActiveService();
+}
+
+function renderHeroFocus(services) {
+  const payload = services?.[activeService] || {};
+  const quota = payload.real_quota || {};
+  const overview = payload.overview || {};
+  const meta = SERVICE_META[activeService] || SERVICE_META.tavily;
+
+  document.getElementById('hero-focus').innerHTML = `
+    <div class="hero-focus-top">
+      <div>
+        <div class="hero-focus-kicker">当前工作台</div>
+        <div class="hero-focus-name">${meta.label}</div>
+      </div>
+      <div class="hero-focus-status">${activeService === 'firecrawl' ? 'Firecrawl 池' : 'Tavily 池'}</div>
+    </div>
+    <div class="hero-focus-desc">
+      当前查看 ${meta.label} 的独立 Key 池、独立 Token 池和真实额度同步状态。邮箱前缀 ${meta.emailPrefix}，Token 前缀 ${meta.tokenPrefix}。
+    </div>
+    <div class="hero-focus-metrics">
+      <div class="hero-focus-metric">
+        <div class="label">活跃 Key</div>
+        <div class="value">${fmtNum(payload.keys_active || 0)}</div>
+      </div>
+      <div class="hero-focus-metric">
+        <div class="label">代理 Token</div>
+        <div class="value">${fmtNum((payload.tokens || []).length)}</div>
+      </div>
+      <div class="hero-focus-metric">
+        <div class="label">今日调用</div>
+        <div class="value">${fmtNum(overview.today_count || 0)}</div>
+      </div>
+      <div class="hero-focus-metric">
+        <div class="label">真实剩余</div>
+        <div class="value">${fmtNum(quota.total_remaining ?? 0)}</div>
+      </div>
+    </div>
+    <div class="hero-focus-foot">
+      ${meta.routeHint}。切换顶部卡片后，这里的状态和下方完整内容会同步更新。
+    </div>
+  `;
+}
+
+function renderServiceSwitcher(services) {
+  const html = Object.entries(SERVICE_META).map(([service, meta]) => {
+    const payload = services?.[service] || {};
+    const quota = payload.real_quota || {};
+    const remaining = quota.total_remaining ?? 0;
+    const activeKeys = payload.keys_active || 0;
+    const tokenCount = (payload.tokens || []).length;
+    const todayCount = payload.overview?.today_count || 0;
+    return `
+      <button
+        type="button"
+        class="service-toggle ${activeService === service ? 'is-active' : ''}"
+        data-service="${service}"
+        aria-pressed="${activeService === service ? 'true' : 'false'}"
+        onclick="setActiveService('${service}')"
+      >
+        <div class="service-toggle-top">
+          <div class="service-toggle-title">
+            <span class="service-chip" data-service="${service}">${meta.label}</span>
+            <strong>${meta.label}</strong>
+            <span>${meta.routeHint}</span>
+          </div>
+          <div class="service-toggle-status">${activeService === service ? '当前查看' : '点击切换'}</div>
+        </div>
+        <div class="service-toggle-grid">
+          <div class="service-toggle-metric">
+            <div class="label">活跃 Key</div>
+            <div class="value">${fmtNum(activeKeys)}</div>
+          </div>
+          <div class="service-toggle-metric">
+            <div class="label">Token</div>
+            <div class="value">${fmtNum(tokenCount)}</div>
+          </div>
+          <div class="service-toggle-metric">
+            <div class="label">今日调用</div>
+            <div class="value">${fmtNum(todayCount)}</div>
+          </div>
+          <div class="service-toggle-metric">
+            <div class="label">真实剩余</div>
+            <div class="value">${fmtNum(remaining)}</div>
+          </div>
+        </div>
+        <div class="service-toggle-badges">
+          <span class="service-toggle-badge">账号 ${meta.emailPrefix}</span>
+          <span class="service-toggle-badge">Token ${meta.tokenPrefix}</span>
+          <span class="service-toggle-badge">池子独立</span>
+        </div>
+        <div class="service-toggle-foot">
+          <span>独立 Key 池 + 独立额度同步</span>
+          <span class="service-toggle-arrow">${activeService === service ? '正在查看' : '切换到此工作台'} →</span>
+        </div>
+      </button>
+    `;
+  }).join('');
+
+  document.getElementById('service-switcher').innerHTML = html;
+}
+
+function applyActiveService() {
+  if (!SERVICE_META[activeService]) {
+    activeService = 'tavily';
+  }
+
+  for (const service of Object.keys(SERVICE_META)) {
+    const panel = document.querySelector(`.service-panel[data-service="${service}"]`);
+    if (!panel) continue;
+    panel.classList.toggle('is-inactive', service !== activeService);
+  }
+
+  document.querySelectorAll('.service-toggle').forEach((item) => {
+    const isActive = item.dataset.service === activeService;
+    item.classList.toggle('is-active', isActive);
+    item.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+    const status = item.querySelector('.service-toggle-status');
+    if (status) {
+      status.textContent = isActive ? '当前查看' : '点击切换';
+    }
+    const arrow = item.querySelector('.service-toggle-arrow');
+    if (arrow) {
+      arrow.textContent = isActive ? '正在查看 →' : '切换到此工作台 →';
+    }
   });
+
+  const switcherNote = document.getElementById('switcher-note');
+  if (switcherNote) {
+    switcherNote.textContent = `当前工作台：${SERVICE_META[activeService].label} · 已记住你的切换偏好`;
+  }
+
+  renderHeroFocus(latestServices);
 }
 
-function logout() {
-  PWD = '';
-  localStorage.removeItem('tavily_proxy_pwd');
-  document.getElementById('login-box').classList.remove('hidden');
-  document.getElementById('dashboard').classList.add('hidden');
-  document.getElementById('user-dropdown').classList.remove('show');
+function setActiveService(service) {
+  if (!SERVICE_META[service]) return;
+  activeService = service;
+  localStorage.setItem(ACTIVE_SERVICE_KEY, service);
+  applyActiveService();
+  const panel = document.querySelector(`.service-panel[data-service="${service}"]`);
+  if (panel) {
+    panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
 }
 
 function toggleDropdown() {
   document.getElementById('user-dropdown').classList.toggle('show');
 }
 
-// Close dropdown on outside click
-document.addEventListener('click', e => {
+function doLogin() {
+  const input = document.getElementById('pwd-input');
+  PWD = input.value.trim();
+  localStorage.setItem(STORAGE_KEY, PWD);
+  localStorage.removeItem(LEGACY_STORAGE_KEY);
+
+  api('GET', '/api/stats')
+    .then(() => {
+      document.getElementById('login-err').classList.add('hidden');
+      document.getElementById('login-box').classList.add('hidden');
+      document.getElementById('dashboard').classList.remove('hidden');
+      refresh();
+    })
+    .catch(() => {
+      document.getElementById('login-err').textContent = '密码错误，或管理 API 不可用。';
+      document.getElementById('login-err').classList.remove('hidden');
+    });
+}
+
+function logout() {
+  PWD = '';
+  localStorage.removeItem(STORAGE_KEY);
+  localStorage.removeItem(LEGACY_STORAGE_KEY);
+  document.getElementById('dashboard').classList.add('hidden');
+  document.getElementById('login-box').classList.remove('hidden');
+  document.getElementById('user-dropdown').classList.remove('show');
+}
+
+document.addEventListener('click', (event) => {
   const menu = document.querySelector('.user-menu');
-  if (menu && !menu.contains(e.target)) {
+  if (menu && !menu.contains(event.target)) {
     document.getElementById('user-dropdown').classList.remove('show');
   }
 });
 
-function quotaBar(used, limit) {
-  const pct = limit ? Math.min(100, (used / limit) * 100) : 0;
-  const cls = pct >= 90 ? 'danger' : pct >= 70 ? 'warn' : '';
-  return `<div class="quota-bar"><div class="quota-bar-fill ${cls}" style="width:${pct}%"></div></div>`;
-}
-
 function fmtNum(value) {
-  if (value === null || value === undefined || value === '') return '--';
-  return Number(value).toLocaleString();
+  if (value === null || value === undefined || value === '') {
+    return '--';
+  }
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric.toLocaleString() : String(value);
 }
 
 function escapeHtml(value) {
@@ -232,246 +1440,449 @@ function escapeHtml(value) {
 
 function formatTime(iso) {
   if (!iso) return '未同步';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '未同步';
-  return d.toLocaleString();
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '未同步';
+  return date.toLocaleString();
 }
 
-function renderKeyQuota(key) {
+function quotaBar(used, limit) {
+  const safeLimit = Number(limit || 0);
+  const safeUsed = Number(used || 0);
+  if (!safeLimit) return '';
+  const pct = Math.min(100, (safeUsed / safeLimit) * 100);
+  const cls = pct >= 90 ? 'danger' : pct >= 70 ? 'warn' : '';
+  return `
+    <div class="quota-bar">
+      <div class="quota-bar-fill ${cls}" style="width:${pct}%"></div>
+    </div>
+  `;
+}
+
+function buildCurlExample(service, tokenValue) {
+  const baseUrl = location.origin;
+  const token = tokenValue || 'YOUR_PROXY_TOKEN';
+  if (service === 'firecrawl') {
+    return `# Firecrawl Scrape
+curl -X POST ${baseUrl}/firecrawl/v2/scrape \\
+  -H "Content-Type: application/json" \\
+  -H "Authorization: Bearer ${token}" \\
+  -d '{"url":"https://example.com","formats":["markdown"]}'
+
+# Firecrawl 额度查询
+curl -X GET ${baseUrl}/firecrawl/v2/team/credit-usage \\
+  -H "Authorization: Bearer ${token}"
+
+# 也支持 body 里传 api_key
+curl -X POST ${baseUrl}/firecrawl/v2/scrape \\
+  -H "Content-Type: application/json" \\
+  -d '{"api_key":"${token}","url":"https://example.com"}'`;
+  }
+
+  return `# Tavily Search
+curl -X POST ${baseUrl}/api/search \\
+  -H "Content-Type: application/json" \\
+  -H "Authorization: Bearer ${token}" \\
+  -d '{"query":"hello world","max_results":1}'
+
+# Tavily Extract
+curl -X POST ${baseUrl}/api/extract \\
+  -H "Content-Type: application/json" \\
+  -H "Authorization: Bearer ${token}" \\
+  -d '{"urls":["https://example.com"]}'
+
+# 也支持 body 里传 api_key
+curl -X POST ${baseUrl}/api/search \\
+  -H "Content-Type: application/json" \\
+  -d '{"api_key":"${token}","query":"hello world"}'`;
+}
+
+function renderGlobalSummary(services) {
+  const list = Object.values(services || {});
+  const totalKeys = list.reduce((sum, item) => sum + Number(item.keys_total || 0), 0);
+  const activeKeys = list.reduce((sum, item) => sum + Number(item.keys_active || 0), 0);
+  const totalTokens = list.reduce((sum, item) => sum + Number((item.tokens || []).length), 0);
+  const todayCount = list.reduce((sum, item) => sum + Number(item.overview?.today_count || 0), 0);
+  const realRemaining = list.reduce((sum, item) => sum + Number(item.real_quota?.total_remaining || 0), 0);
+  const syncedKeys = list.reduce((sum, item) => sum + Number(item.real_quota?.synced_keys || 0), 0);
+
+  document.getElementById('global-summary').innerHTML = `
+    <div class="summary-box">
+      <div class="label">活跃 Key 总数</div>
+      <div class="value">${fmtNum(activeKeys)} <span class="muted">/ ${fmtNum(totalKeys)}</span></div>
+      <div class="hint">两个服务的 Key 池完全拆开管理</div>
+    </div>
+    <div class="summary-box">
+      <div class="label">代理 Token 总数</div>
+      <div class="value">${fmtNum(totalTokens)}</div>
+      <div class="hint">Tavily 和 Firecrawl 分别签发，不会混用</div>
+    </div>
+    <div class="summary-box">
+      <div class="label">今日代理调用</div>
+      <div class="value">${fmtNum(todayCount)}</div>
+      <div class="hint">来自本地 usage_logs 聚合统计</div>
+    </div>
+    <div class="summary-box">
+      <div class="label">真实剩余额度</div>
+      <div class="value">${fmtNum(realRemaining)}</div>
+      <div class="hint">已同步 ${fmtNum(syncedKeys)} 个 Key，来自两个池子的真实额度汇总</div>
+    </div>
+  `;
+}
+
+function renderSyncMeta(service, payload) {
+  const quota = payload.real_quota || {};
+  const usageSync = payload.usage_sync || {};
+  const parts = [];
+
+  parts.push(`已同步 ${fmtNum(quota.synced_keys || 0)} / ${fmtNum(quota.total_keys || 0)} 个 Key`);
+  if ((quota.key_level_count || 0) > 0) {
+    parts.push(`Key 级额度 ${fmtNum(quota.key_level_count)}`);
+  }
+  if ((quota.account_fallback_count || 0) > 0) {
+    parts.push(`账户级回退 ${fmtNum(quota.account_fallback_count)}`);
+  }
+  if (quota.last_synced_at) {
+    parts.push(`最近同步 ${formatTime(quota.last_synced_at)}`);
+  }
+  if ((quota.error_keys || 0) > 0) {
+    parts.push(`错误 ${fmtNum(quota.error_keys)}`);
+  }
+  if ((usageSync.synced || 0) > 0 || (usageSync.errors || 0) > 0) {
+    parts.push(`本轮同步 ${fmtNum(usageSync.synced || 0)} 成功 / ${fmtNum(usageSync.errors || 0)} 失败`);
+  }
+
+  document.getElementById(`sync-meta-${service}`).textContent = parts.join(' · ');
+}
+
+function renderOverview(service, payload) {
+  const overview = payload.overview || {};
+  const quota = payload.real_quota || {};
+  const totalLimit = Number(quota.total_limit || 0);
+  const totalUsed = Number(quota.total_used || 0);
+  const totalRemaining = Number(quota.total_remaining || 0);
+  const remainStyle = totalLimit && totalUsed / totalLimit >= 0.9
+    ? 'color: var(--danger)'
+    : totalLimit && totalUsed / totalLimit >= 0.7
+      ? 'color: var(--warn)'
+      : 'color: var(--ok)';
+
+  document.getElementById(`overview-${service}`).innerHTML = `
+    <div class="stat-box">
+      <div class="label">真实总额度</div>
+      <div class="value">${fmtNum(totalLimit)}</div>
+      <div class="hint">${SERVICE_META[service].quotaSource}</div>
+    </div>
+    <div class="stat-box">
+      <div class="label">真实已用</div>
+      <div class="value">${fmtNum(totalUsed)}</div>
+      <div class="hint">按已同步 Key 汇总</div>
+    </div>
+    <div class="stat-box">
+      <div class="label">真实剩余</div>
+      <div class="value" style="${remainStyle}">${fmtNum(totalRemaining)}</div>
+      <div class="hint">${quotaBar(totalUsed, totalLimit) || '尚未获得完整上限信息'}</div>
+    </div>
+    <div class="stat-box">
+      <div class="label">Key 池状态</div>
+      <div class="value">${fmtNum(payload.keys_active || 0)} <span class="muted">/ ${fmtNum(payload.keys_total || 0)}</span></div>
+      <div class="hint">活跃 / 总数</div>
+    </div>
+    <div class="stat-box">
+      <div class="label">Token 数</div>
+      <div class="value">${fmtNum((payload.tokens || []).length)}</div>
+      <div class="hint">当前服务独立 Token 池</div>
+    </div>
+    <div class="stat-box">
+      <div class="label">今日代理调用</div>
+      <div class="value">${fmtNum(overview.today_count || 0)}</div>
+      <div class="hint">成功 ${fmtNum(overview.today_success || 0)} / 失败 ${fmtNum(overview.today_failed || 0)}</div>
+    </div>
+    <div class="stat-box">
+      <div class="label">本月代理调用</div>
+      <div class="value">${fmtNum(overview.month_count || 0)}</div>
+      <div class="hint">成功 ${fmtNum(overview.month_success || 0)}</div>
+    </div>
+    <div class="stat-box">
+      <div class="label">小时配额消耗</div>
+      <div class="value">${fmtNum(overview.hour_count || 0)}</div>
+      <div class="hint">来自当前服务 Token 的 usage_logs</div>
+    </div>
+  `;
+}
+
+function renderApiExample(service, tokens) {
+  const firstToken = tokens && tokens.length ? tokens[0].token : 'YOUR_PROXY_TOKEN';
+  document.getElementById(`base-url-${service}`).textContent = location.origin;
+  document.getElementById(`curl-example-${service}`).textContent = buildCurlExample(service, firstToken);
+}
+
+function renderTokenQuota(token) {
+  const stats = token.stats || {};
+  const unlimited = !token.hourly_limit && !token.daily_limit && !token.monthly_limit;
+  if (unlimited) {
+    return '<div class="table-note"><b style="color: var(--ok)">无限制</b><br><span class="muted">当前未设置小时 / 日 / 月限额</span></div>';
+  }
+
+  const hourRemain = Number(token.hourly_limit || 0) - Number(stats.hour_count || 0);
+  const dayRemain = Number(token.daily_limit || 0) - Number(stats.today_count || 0);
+  const monthRemain = Number(token.monthly_limit || 0) - Number(stats.month_count || 0);
+  return `
+    <div class="table-note">小时 ${fmtNum(stats.hour_count || 0)} / ${fmtNum(token.hourly_limit || 0)}，剩余 ${fmtNum(hourRemain)}</div>
+    ${quotaBar(stats.hour_count || 0, token.hourly_limit || 0)}
+    <div class="table-note" style="margin-top:8px">今日 ${fmtNum(stats.today_count || 0)} / ${fmtNum(token.daily_limit || 0)}，剩余 ${fmtNum(dayRemain)}</div>
+    ${quotaBar(stats.today_count || 0, token.daily_limit || 0)}
+    <div class="table-note" style="margin-top:8px">本月 ${fmtNum(stats.month_count || 0)} / ${fmtNum(token.monthly_limit || 0)}，剩余 ${fmtNum(monthRemain)}</div>
+    ${quotaBar(stats.month_count || 0, token.monthly_limit || 0)}
+  `;
+}
+
+function renderTokens(service, tokens) {
+  const tbody = document.getElementById(`tokens-body-${service}`);
+  if (!tokens || tokens.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="5" class="muted">当前还没有 Token，先创建一个给下游使用。</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = tokens.map((token) => {
+    const stats = token.stats || {};
+    return `
+      <tr>
+        <td class="mono">${escapeHtml(token.token)}</td>
+        <td>${escapeHtml(token.name || '-')}</td>
+        <td>${renderTokenQuota(token)}</td>
+        <td class="table-note">
+          今日成功 ${fmtNum(stats.today_success || 0)} / 失败 ${fmtNum(stats.today_failed || 0)}<br>
+          本月成功 ${fmtNum(stats.month_success || 0)}<br>
+          小时调用 ${fmtNum(stats.hour_count || 0)}
+        </td>
+        <td>
+          <div class="table-actions">
+            <button class="btn btn-sm" onclick='copyText(${JSON.stringify(token.token)}, this)'>复制</button>
+            <button class="btn btn-sm btn-danger" onclick="delToken(${token.id})">删除</button>
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function renderKeyQuota(service, key) {
   if (key.usage_key_limit !== null && key.usage_key_used !== null) {
     const remain = key.usage_key_remaining ?? Math.max(0, key.usage_key_limit - key.usage_key_used);
-    let html = `
-      <div>已用 ${fmtNum(key.usage_key_used)} / ${fmtNum(key.usage_key_limit)}</div>
-      <div><b style="color:${remain > 0 ? '#1a8a1a' : '#e74c3c'}">剩余 ${fmtNum(remain)}</b></div>
-      ${quotaBar(key.usage_key_used || 0, key.usage_key_limit || 0)}
-      <div style="font-size:11px;color:#888;margin-top:4px">同步 ${formatTime(key.usage_synced_at)}</div>
+    return `
+      <div class="table-note">已用 ${fmtNum(key.usage_key_used)} / ${fmtNum(key.usage_key_limit)}</div>
+      <div class="table-note"><b style="color:${remain > 0 ? 'var(--ok)' : 'var(--danger)'}">剩余 ${fmtNum(remain)}</b></div>
+      ${quotaBar(key.usage_key_used, key.usage_key_limit)}
+      <div class="table-note muted" style="margin-top:6px">同步 ${formatTime(key.usage_synced_at)}</div>
+      ${key.usage_sync_error ? `<div class="table-note" style="color: var(--warn); margin-top: 6px">最近错误: ${escapeHtml(key.usage_sync_error)}</div>` : ''}
     `;
-    if (key.usage_sync_error) {
-      html += `<div style="font-size:11px;color:#e67e22;margin-top:4px">最近错误: ${escapeHtml(key.usage_sync_error)}</div>`;
-    }
-    return html;
   }
-  if (key.usage_key_used !== null && key.usage_account_limit !== null) {
-    let html = `
-      <div>已用 ${fmtNum(key.usage_key_used)}</div>
-      <div><b style="color:#1a1a6e">单 Key 未设独立上限</b></div>
-      <div style="font-size:11px;color:#888;margin-top:4px">额度跟随账户计划</div>
-      <div style="font-size:11px;color:#888;margin-top:4px">同步 ${formatTime(key.usage_synced_at)}</div>
+
+  if (service === 'firecrawl' && key.usage_synced_at) {
+    return `
+      <div class="table-note muted">Firecrawl 当前主要返回账户级 credits。</div>
+      <div class="table-note muted">单 Key 独立限额请看右侧账户额度。</div>
+      ${key.usage_sync_error ? `<div class="table-note" style="color: var(--warn); margin-top: 6px">最近错误: ${escapeHtml(key.usage_sync_error)}</div>` : ''}
     `;
-    if (key.usage_sync_error) {
-      html += `<div style="font-size:11px;color:#e67e22;margin-top:4px">最近错误: ${escapeHtml(key.usage_sync_error)}</div>`;
-    }
-    return html;
   }
+
   if (key.usage_sync_error) {
-    return `<span style="color:#e67e22">同步失败</span><div style="font-size:11px;color:#888;margin-top:4px">${escapeHtml(key.usage_sync_error)}</div>`;
+    return `<div class="table-note" style="color: var(--warn)">同步失败：${escapeHtml(key.usage_sync_error)}</div>`;
   }
-  return '<span style="color:#888">未同步</span>';
+
+  return '<span class="muted">未同步</span>';
 }
 
-function renderAccountQuota(key) {
+function renderAccountQuota(service, key) {
   if (key.usage_account_limit !== null && key.usage_account_used !== null) {
     const remain = key.usage_account_remaining ?? Math.max(0, key.usage_account_limit - key.usage_account_used);
-    const plan = key.usage_account_plan ? escapeHtml(key.usage_account_plan) : '未知计划';
+    const plan = key.usage_account_plan || (service === 'firecrawl' ? 'Firecrawl Credits' : '未知计划');
     return `
-      <div>${plan}</div>
-      <div>已用 ${fmtNum(key.usage_account_used)} / ${fmtNum(key.usage_account_limit)}</div>
-      <div><b style="color:${remain > 0 ? '#1a8a1a' : '#e74c3c'}">剩余 ${fmtNum(remain)}</b></div>
-      ${quotaBar(key.usage_account_used || 0, key.usage_account_limit || 0)}
+      <div class="table-note">${escapeHtml(plan)}</div>
+      <div class="table-note">已用 ${fmtNum(key.usage_account_used)} / ${fmtNum(key.usage_account_limit)}</div>
+      <div class="table-note"><b style="color:${remain > 0 ? 'var(--ok)' : 'var(--danger)'}">剩余 ${fmtNum(remain)}</b></div>
+      ${quotaBar(key.usage_account_used, key.usage_account_limit)}
     `;
   }
-  return '<span style="color:#888">未返回</span>';
+  return '<span class="muted">未返回</span>';
+}
+
+function renderKeys(service, keys) {
+  const tbody = document.getElementById(`keys-body-${service}`);
+  if (!keys || keys.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="8" class="muted">当前服务还没有导入 Key。</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = keys.map((key) => {
+    const active = Number(key.active) === 1;
+    return `
+      <tr>
+        <td>${fmtNum(key.id)}</td>
+        <td class="mono">${escapeHtml(key.key_masked || key.key)}</td>
+        <td>${escapeHtml(key.email || '-')}</td>
+        <td>${renderKeyQuota(service, key)}</td>
+        <td>${renderAccountQuota(service, key)}</td>
+        <td class="table-note">
+          成功 ${fmtNum(key.total_used || 0)}<br>
+          失败 ${fmtNum(key.total_failed || 0)}<br>
+          最近使用 ${formatTime(key.last_used_at)}
+        </td>
+        <td><span class="tag ${active ? 'tag-ok' : 'tag-off'}">${active ? '正常' : '禁用'}</span></td>
+        <td>
+          <div class="table-actions">
+            <button class="btn btn-sm" onclick="toggleKey(${key.id}, ${active ? 0 : 1})">${active ? '禁用' : '启用'}</button>
+            <button class="btn btn-sm btn-danger" onclick="delKey(${key.id})">删除</button>
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('');
 }
 
 async function refresh() {
-  const stats = await api('GET', '/api/stats');
-  const o = stats.overview;
-  const rq = stats.real_quota || {};
-  const totalQuota = rq.total_limit || 0;
-  const totalUsed = rq.total_used || 0;
-  const totalRemain = rq.total_remaining || 0;
-  const usedPct = totalQuota ? Math.min(100, (totalUsed / totalQuota) * 100) : 0;
-  const remainCls = usedPct >= 90 ? 'color:#e74c3c' : usedPct >= 70 ? 'color:#f39c12' : 'color:#1a8a1a';
-  const syncMeta = [];
-  syncMeta.push(`已同步 ${rq.synced_keys || 0}/${rq.total_keys || 0} 个 key`);
-  if ((rq.key_level_count || 0) > 0) syncMeta.push(`独立 Key 限额 ${rq.key_level_count} 个`);
-  if ((rq.account_fallback_count || 0) > 0) syncMeta.push(`账户计划回退 ${rq.account_fallback_count} 组`);
-  if (rq.last_synced_at) syncMeta.push(`最近同步 ${formatTime(rq.last_synced_at)}`);
-  if ((rq.error_keys || 0) > 0) syncMeta.push(`${rq.error_keys} 个 key 同步失败`);
-  document.getElementById('usage-sync-meta').textContent = syncMeta.join(' · ');
+  const payload = await api('GET', '/api/stats');
+  const services = payload.services || {};
+  latestServices = services;
 
-  document.getElementById('overview-stats').innerHTML = `
-    <div class="stat-box"><div class="label">真实总额度</div><div class="value">${fmtNum(totalQuota)}</div><div class="remain">来自 Tavily /usage</div></div>
-    <div class="stat-box"><div class="label">真实已用</div><div class="value">${fmtNum(totalUsed)}</div><div class="remain">按已同步 key 汇总</div></div>
-    <div class="stat-box"><div class="label">真实剩余</div><div class="value" style="${remainCls}">${fmtNum(totalRemain)}</div>${quotaBar(totalUsed, totalQuota)}</div>
-    <div class="stat-box"><div class="label">已同步 Key</div><div class="value">${fmtNum(rq.synced_keys || 0)} <span>/ ${fmtNum(rq.total_keys || 0)}</span></div><div class="remain">${(rq.error_keys || 0) > 0 ? `失败 ${rq.error_keys}` : '全部正常'}</div></div>
-    <div class="stat-box"><div class="label">今日用量</div><div class="value">${o.today_count}</div><div class="remain">成功 ${o.today_success} / 失败 ${o.today_failed}</div></div>
-    <div class="stat-box"><div class="label">本月代理用量</div><div class="value">${o.month_count}</div><div class="remain">成功 ${o.month_success} / 失败 ${o.month_count - o.month_success}</div></div>
-    <div class="stat-box"><div class="label">Key 池</div><div class="value">${stats.keys_active} <span>/ ${stats.keys_total}</span></div></div>
-    <div class="stat-box"><div class="label">Token 数</div><div class="value">${stats.tokens.length}</div></div>
-  `;
-
-  // API usage info
-  const baseUrl = location.origin;
-  document.getElementById('api-base-url').textContent = baseUrl;
-  const firstToken = stats.tokens.length > 0 ? stats.tokens[0].token : 'YOUR_TOKEN';
-  document.getElementById('curl-example').innerHTML = `<button class="copy-code-btn" onclick="copyCurl()">复制</button><span class="comment"># Search 搜索</span>
-curl -X POST <span class="string">${baseUrl}/api/search</span> \\
-  -H <span class="string">"Content-Type: application/json"</span> \\
-  -H <span class="string">"Authorization: Bearer <span class="key">${firstToken}</span>"</span> \\
-  -d <span class="string">'{"query": "your search query"}'</span>
-
-<span class="comment"># Extract 内容提取</span>
-curl -X POST <span class="string">${baseUrl}/api/extract</span> \\
-  -H <span class="string">"Content-Type: application/json"</span> \\
-  -H <span class="string">"Authorization: Bearer <span class="key">${firstToken}</span>"</span> \\
-  -d <span class="string">'{"urls": ["https://example.com"]}'</span>
-
-<span class="comment"># 或在 body 中传 api_key</span>
-curl -X POST <span class="string">${baseUrl}/api/search</span> \\
-  -H <span class="string">"Content-Type: application/json"</span> \\
-  -d <span class="string">'{"api_key": "<span class="key">${firstToken}</span>", "query": "your search query"}'</span>`;
-
-  // Tokens
-  const tokensData = await api('GET', '/api/tokens');
-  const tbody = document.querySelector('#tokens-table tbody');
-  tbody.innerHTML = '';
-  for (const t of tokensData.tokens) {
-    const s = t.stats || {};
-    const unlimited = !t.hourly_limit && !t.daily_limit && !t.monthly_limit;
-    let quotaHtml;
-    if (unlimited) {
-      quotaHtml = '<span style="color:#1a8a1a;font-weight:600">无限制</span>';
-    } else {
-      const hr = t.hourly_limit - (s.hour_count||0);
-      const dr = t.daily_limit - (s.today_count||0);
-      const mr = t.monthly_limit - (s.month_count||0);
-      quotaHtml = `
-        <div>小时 ${s.hour_count||0}/${t.hourly_limit} <b style="color:${hr>0?'#1a8a1a':'#e74c3c'}">余 ${hr}</b>${quotaBar(s.hour_count||0, t.hourly_limit)}</div>
-        <div>今日 ${s.today_count||0}/${t.daily_limit} <b style="color:${dr>0?'#1a8a1a':'#e74c3c'}">余 ${dr}</b>${quotaBar(s.today_count||0, t.daily_limit)}</div>
-        <div>本月 ${s.month_count||0}/${t.monthly_limit} <b style="color:${mr>0?'#1a8a1a':'#e74c3c'}">余 ${mr}</b>${quotaBar(s.month_count||0, t.monthly_limit)}</div>`;
-    }
-    tbody.innerHTML += `<tr>
-      <td class="mono">${t.token}</td>
-      <td style="font-size:12px">${t.name||'-'}</td>
-      <td style="font-size:12px;line-height:2">${quotaHtml}</td>
-      <td style="font-size:12px;line-height:1.8">
-        成功 ${s.today_success||0} / 失败 ${s.today_failed||0}<br>
-        本月 ${s.month_success||0}
-      </td>
-      <td>
-        <button class="btn btn-sm" onclick="copyText('${t.token}')">复制</button>
-        <button class="btn btn-sm btn-danger" onclick="delToken(${t.id})">删除</button>
-      </td>
-    </tr>`;
+  renderGlobalSummary(services);
+  renderHeroFocus(services);
+  renderServiceSwitcher(services);
+  for (const [service, meta] of Object.entries(SERVICE_META)) {
+    const servicePayload = services[service] || {
+      tokens: [],
+      keys: [],
+      overview: {},
+      real_quota: {},
+      usage_sync: {},
+      keys_total: 0,
+      keys_active: 0,
+    };
+    renderSyncMeta(service, servicePayload);
+    renderOverview(service, servicePayload);
+    renderApiExample(service, servicePayload.tokens || []);
+    renderTokens(service, servicePayload.tokens || []);
+    renderKeys(service, servicePayload.keys || []);
+    document.getElementById(`sync-btn-${service}`).textContent = meta.syncButton;
+    document.getElementById(`sync-btn-${service}`).disabled = false;
   }
-
-  // Keys
-  const keysData = await api('GET', '/api/keys');
-  const ktbody = document.querySelector('#keys-table tbody');
-  ktbody.innerHTML = '';
-  for (const k of keysData.keys) {
-    const active = k.active === 1;
-    ktbody.innerHTML += `<tr>
-      <td>${k.id}</td>
-      <td class="mono">${k.key_masked}</td>
-      <td style="font-size:12px">${k.email||'-'}</td>
-      <td style="font-size:12px;line-height:1.8">${renderKeyQuota(k)}</td>
-      <td style="font-size:12px;line-height:1.8">${renderAccountQuota(k)}</td>
-      <td style="font-size:12px;line-height:1.8">成功 ${k.total_used}<br>失败 ${k.total_failed}</td>
-      <td><span class="tag ${active?'tag-ok':'tag-off'}">${active?'正常':'禁用'}</span></td>
-      <td>
-        <button class="btn btn-sm" onclick="toggleKey(${k.id},${active?0:1})">${active?'禁用':'启用'}</button>
-        <button class="btn btn-sm btn-danger" onclick="delKey(${k.id})">删除</button>
-      </td>
-    </tr>`;
-  }
+  applyActiveService();
 }
 
-async function createToken() {
-  const name = document.getElementById('token-name').value;
-  await api('POST', '/api/tokens', { name });
-  document.getElementById('token-name').value = '';
-  refresh();
+function toggleImport(service) {
+  document.getElementById(`import-wrap-${service}`).classList.toggle('hidden');
 }
 
-async function delToken(id) { if(confirm('确认删除？')){ await api('DELETE', `/api/tokens/${id}`); refresh(); } }
+async function createToken(service) {
+  const input = document.getElementById(`token-name-${service}`);
+  await api('POST', '/api/tokens', {
+    service,
+    name: input.value.trim(),
+  });
+  input.value = '';
+  await refresh();
+}
 
-async function addSingleKey() {
-  const key = document.getElementById('single-key').value.trim();
+async function delToken(id) {
+  if (!confirm('确认删除这个 Token 吗？')) return;
+  await api('DELETE', `/api/tokens/${id}`);
+  await refresh();
+}
+
+async function addSingleKey(service) {
+  const input = document.getElementById(`single-key-${service}`);
+  const key = input.value.trim();
   if (!key) return;
-  await api('POST', '/api/keys', { key });
-  document.getElementById('single-key').value = '';
-  refresh();
+  await api('POST', '/api/keys', { service, key });
+  input.value = '';
+  await refresh();
 }
 
-async function importKeys() {
-  const text = document.getElementById('import-text').value;
-  if (!text.trim()) return;
-  const r = await api('POST', '/api/keys', { file: text });
-  alert(`已导入 ${r.imported} 个 Key`);
-  document.getElementById('import-text').value = '';
-  document.getElementById('import-area').classList.add('hidden');
-  refresh();
+async function importKeys(service) {
+  const textarea = document.getElementById(`import-text-${service}`);
+  const text = textarea.value.trim();
+  if (!text) return;
+  const result = await api('POST', '/api/keys', { service, file: text });
+  textarea.value = '';
+  document.getElementById(`import-wrap-${service}`).classList.add('hidden');
+  alert(`已导入 ${result.imported || 0} 个 ${SERVICE_META[service].label} Key`);
+  await refresh();
 }
 
-async function delKey(id) { if(confirm('确认删除？')){ await api('DELETE', `/api/keys/${id}`); refresh(); } }
-async function toggleKey(id, active) { await api('PUT', `/api/keys/${id}/toggle`, { active }); refresh(); }
+async function delKey(id) {
+  if (!confirm('确认删除这个 Key 吗？')) return;
+  await api('DELETE', `/api/keys/${id}`);
+  await refresh();
+}
 
-async function syncUsage(force) {
-  const btn = document.getElementById('sync-usage-btn');
-  const originalText = btn.textContent;
-  btn.disabled = true;
-  btn.textContent = '同步中...';
+async function toggleKey(id, active) {
+  await api('PUT', `/api/keys/${id}/toggle`, { active });
+  await refresh();
+}
+
+async function syncUsage(service, force) {
+  const button = document.getElementById(`sync-btn-${service}`);
+  const originalText = button.textContent;
+  button.disabled = true;
+  button.textContent = '同步中...';
   try {
-    await api('POST', '/api/usage/sync', { force });
+    await api('POST', '/api/usage/sync', { service, force });
     await refresh();
-  } catch (e) {
-    alert('同步 Tavily 额度失败: ' + e.message);
-  } finally {
-    btn.disabled = false;
-    btn.textContent = originalText;
+  } catch (error) {
+    alert(`同步 ${SERVICE_META[service].label} 额度失败: ${error.message}`);
+    button.disabled = false;
+    button.textContent = originalText;
   }
 }
 
 async function changePwd() {
-  const newPwd = document.getElementById('new-pwd').value.trim();
-  if (!newPwd || newPwd.length < 4) { alert('密码至少 4 位'); return; }
-  try {
-    await api('PUT', '/api/password', { password: newPwd });
-    PWD = newPwd;
-    localStorage.setItem('tavily_proxy_pwd', PWD);
-    document.getElementById('new-pwd').value = '';
-    document.getElementById('user-dropdown').classList.remove('show');
-    alert('密码已修改');
-  } catch(e) { alert('修改失败: ' + e.message); }
+  const input = document.getElementById('new-pwd');
+  const password = input.value.trim();
+  if (password.length < 4) {
+    alert('密码至少 4 位');
+    return;
+  }
+  await api('PUT', '/api/password', { password });
+  PWD = password;
+  localStorage.setItem(STORAGE_KEY, password);
+  localStorage.removeItem(LEGACY_STORAGE_KEY);
+  input.value = '';
+  document.getElementById('user-dropdown').classList.remove('show');
+  alert('密码已更新');
 }
 
-function copyCurl() {
-  const el = document.getElementById('curl-example');
-  const text = el.innerText.replace('复制', '').trim();
-  navigator.clipboard.writeText(text).then(() => {
-    const btn = el.querySelector('.copy-code-btn');
-    btn.textContent = '已复制';
-    setTimeout(() => btn.textContent = '复制', 1500);
-  });
+function flashButtonLabel(button, label) {
+  if (!button) return;
+  const original = button.textContent;
+  button.textContent = label;
+  setTimeout(() => {
+    button.textContent = original;
+  }, 1400);
 }
 
-function copyText(t) {
-  navigator.clipboard.writeText(t).then(() => {
-    const el = event.target;
-    el.textContent = '已复制';
-    setTimeout(() => el.textContent = '复制', 1500);
-  });
+function copyCode(elementId, button) {
+  const text = document.getElementById(elementId).textContent;
+  navigator.clipboard.writeText(text).then(() => flashButtonLabel(button, '已复制'));
 }
 
-// Auto login
+function copyText(value, button) {
+  navigator.clipboard.writeText(value).then(() => flashButtonLabel(button, '已复制'));
+}
+
+renderServiceShells();
+
 if (PWD) {
-  api('GET', '/api/stats').then(() => {
-    document.getElementById('login-box').classList.add('hidden');
-    document.getElementById('dashboard').classList.remove('hidden');
-    refresh();
-  }).catch(() => {});
+  api('GET', '/api/stats')
+    .then(() => {
+      document.getElementById('login-box').classList.add('hidden');
+      document.getElementById('dashboard').classList.remove('hidden');
+      refresh();
+    })
+    .catch(() => {
+      localStorage.removeItem(STORAGE_KEY);
+      localStorage.removeItem(LEGACY_STORAGE_KEY);
+      PWD = '';
+    });
 }
 </script>
 </body>

@@ -123,8 +123,9 @@ from config import (
     SOLVER_THREADS,
     LOCAL_SOLVER_URL,
 )
-from tavily_core import create_email, register
-from mail_provider import get_active_domain, get_configured_domains, set_selected_domain
+from tavily_core import create_email as create_tavily_email, register as register_tavily
+from firecrawl_core import register as register_firecrawl
+from mail_provider import create_email, get_active_domain, get_configured_domains, set_selected_domain
 
 # ──────────────────────────────────────────────
 # Solver 管理
@@ -181,21 +182,27 @@ def validate_runtime_config(upload, show_provider_summary=True):
 
     return True
 
-def print_runtime_summary():
-    print("""
+def print_runtime_summary(service="tavily"):
+    service_name = "Tavily" if service == "tavily" else "Firecrawl"
+    output_file = "accounts.txt" if service == "tavily" else "firecrawl_accounts.txt"
+    account_prefix = "tavily-" if service == "tavily" else "fc-"
+    print(f"""
 ┌──────────────────────────────────────────┐
-│         Tavily 全自动注册工具              │
+│      多服务自动注册启动台                │
 ├──────────────────────────────────────────┤
+│  当前服务: {service_name:<10}               │
 │  自动检查环境 / 依赖 / 邮箱配置             │
-│  启动后只选择域名 / 数量 / 并发              │
 └──────────────────────────────────────────┘
 """)
     print("当前默认配置：")
+    print(f"  账号前缀: {account_prefix}")
+    print(f"  输出文件: {output_file}")
     print(f"  邮箱链路: {EMAIL_PROVIDER}")
     print(f"  注册间隔: {DEFAULT_DELAY}s")
     print(f"  默认并发: {DEFAULT_CONCURRENCY}")
     print(f"  默认上传: {'开启' if DEFAULT_UPLOAD else '关闭'}")
-    print(f"  Solver 端口: {SOLVER_PORT}")
+    if service == "tavily":
+        print(f"  Solver 端口: {SOLVER_PORT}")
 
 def prompt_domain_choice():
     domains = get_configured_domains()
@@ -338,11 +345,11 @@ if hasattr(signal, "SIGTERM"):
 # 上传到代理服务器
 # ──────────────────────────────────────────────
 
-def upload_key(email, api_key):
+def upload_key(email, api_key, service="tavily"):
     try:
         r = std_requests.post(
             f"{SERVER_URL}/api/keys",
-            json={"key": api_key, "email": email},
+            json={"key": api_key, "email": email, "service": service},
             headers={"Authorization": f"Bearer {SERVER_ADMIN_PASSWORD}"},
             timeout=15,
         )
@@ -359,21 +366,25 @@ def upload_key(email, api_key):
 # 注册流程
 # ──────────────────────────────────────────────
 
-def do_register(count, delay, upload):
-    return do_register_parallel(count, delay, upload, 1)
+def do_register(count, delay, upload, service="tavily"):
+    return do_register_parallel(count, delay, upload, 1, service)
 
-def register_one(index, total, upload):
+def register_one(index, total, upload, service="tavily"):
     print(f"{'='*60}")
     print(f"📧 注册 ({index}/{total})")
     print(f"{'='*60}\n")
 
     try:
-        email, password = create_email()
-        result = register(email, password)
+        email, password = create_email(service=service)
+
+        if service == "tavily":
+            result = register_tavily(email, password)
+        else:  # firecrawl
+            result = register_firecrawl(email, password)
 
         if result and result != "SUCCESS_NO_KEY":
             if upload:
-                upload_key(email, result)
+                upload_key(email, result, service=service)
             return "success"
         if result == "SUCCESS_NO_KEY":
             return "success_no_key"
@@ -382,7 +393,7 @@ def register_one(index, total, upload):
         print(f"❌ 注册异常: {e}")
         return "failed"
 
-def do_register_parallel(count, delay, upload, concurrency):
+def do_register_parallel(count, delay, upload, concurrency, service="tavily"):
     success = 0
     failed = 0
     actual_concurrency = max(1, min(concurrency, count))
@@ -393,7 +404,7 @@ def do_register_parallel(count, delay, upload, concurrency):
             if i > 0:
                 print(f"\n⏳ 等待 {delay} 秒...\n")
                 time.sleep(delay)
-            status = register_one(i + 1, count, upload)
+            status = register_one(i + 1, count, upload, service)
             if status in {"success", "success_no_key"}:
                 success += 1
             else:
@@ -405,7 +416,7 @@ def do_register_parallel(count, delay, upload, concurrency):
             next_index = 1
 
             while next_index <= count and len(futures) < actual_concurrency:
-                future = executor.submit(register_one, next_index, count, upload)
+                future = executor.submit(register_one, next_index, count, upload, service)
                 futures[future] = next_index
                 next_index += 1
 
@@ -423,7 +434,7 @@ def do_register_parallel(count, delay, upload, concurrency):
                         if delay > 0:
                             print(f"\n⏳ 等待 {delay} 秒后补充新任务...\n")
                             time.sleep(delay)
-                        next_future = executor.submit(register_one, next_index, count, upload)
+                        next_future = executor.submit(register_one, next_index, count, upload, service)
                         futures[next_future] = next_index
                         next_index += 1
 
@@ -431,7 +442,7 @@ def do_register_parallel(count, delay, upload, concurrency):
     print(f"✅ 成功: {success}  ❌ 失败: {failed}")
     print(f"{'='*60}\n")
 
-def run_register_flow(count, delay, upload, concurrency):
+def run_register_flow(count, delay, upload, concurrency, service="tavily"):
     if count <= 0:
         print("❌ 注册数量必须大于 0")
         return
@@ -442,10 +453,31 @@ def run_register_flow(count, delay, upload, concurrency):
         print("❌ 并发数必须大于 0")
         return
     print(f"\n🚀 开始注册: 数量={count} 并发={min(concurrency, count)} 间隔={delay}s 上传={'是' if upload else '否'}")
-    do_register_parallel(count, delay, upload, concurrency)
+    do_register_parallel(count, delay, upload, concurrency, service)
+
+def prompt_service_choice():
+    """选择要注册的服务"""
+    print("\n请选择要注册的服务：")
+    print("  1. Tavily")
+    print("  2. Firecrawl")
+
+    while True:
+        print("请输入选项 (1-2，默认 1): ", end="")
+        raw = input().strip()
+        if raw == "" or raw == "1":
+            return "tavily"
+        elif raw == "2":
+            return "firecrawl"
+        else:
+            print("❌ 请输入有效编号")
+            continue
 
 def main():
-    print_runtime_summary()
+    service = prompt_service_choice()
+    print_runtime_summary(service)
+
+    # Firecrawl 不需要 Solver
+    need_solver = (service == "tavily")
 
     if not validate_runtime_config(False, show_provider_summary=True):
         return
@@ -458,14 +490,15 @@ def main():
     if upload and not validate_runtime_config(True, show_provider_summary=False):
         return
 
-    if not start_solver(thread_count=concurrency):
+    if need_solver and not start_solver(thread_count=concurrency):
         print("无法启动 Solver，退出")
         return
 
     try:
-        run_register_flow(count, DEFAULT_DELAY, upload, concurrency)
+        run_register_flow(count, DEFAULT_DELAY, upload, concurrency, service)
     finally:
-        stop_solver()
+        if need_solver:
+            stop_solver()
 
 if __name__ == "__main__":
     main()

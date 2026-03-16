@@ -1,37 +1,84 @@
-# Tavily API Proxy
+# Multi-Service API Proxy
 
-把多个 Tavily API Key 做成一个统一代理池，对外暴露固定接口和自定义 Token，并提供一个可视化控制台。
+把多个 **Tavily** 和 **Firecrawl** API Key 做成统一代理池，对外暴露固定入口、独立 Token，并提供一个更适合日常维护的可视化控制台。
 
-这版 `proxy` 已经不是简单的“本地估算额度”了，后台会通过 Tavily 官方 `GET /usage` 接口同步每个 Key 的真实已用额度、剩余额度和账户计划信息。
+当前这版 `proxy/` 已支持：
+
+- Tavily / Firecrawl **分服务隔离**
+- 独立 Key 池、独立 Token 池
+- 顶部卡片切换 + 单服务详情面板
+- Tavily 真实额度同步：`GET /usage`
+- Firecrawl 真实额度同步：
+  - `GET /v2/team/credit-usage`
+  - `GET /v2/team/credit-usage/historical?byApiKey=true`
+- 本地代理调用统计、成功率、延迟统计
+
+## 控制台截图
+
+### 工作台切换
+
+![Proxy Workspace Switcher](../docs/screenshots/proxy-workspace-switcher.jpg)
+
+### Key 池详情
+
+![Proxy Key Pool](../docs/screenshots/proxy-key-pool.jpg)
 
 ## Docker Image
 
-Docker Hub 镜像地址：
+当前兼容镜像名仍沿用旧名字：
 
 ```text
 docker.io/skernelx/tavily-proxy:latest
 ```
 
-也可以直接这样拉取：
+拉取方式：
 
 ```bash
 docker pull skernelx/tavily-proxy:latest
 ```
 
-## 功能
+## 功能概览
 
-- 多个 Tavily Key 轮询代理
-- 自定义访问 Token
-- Token 级限流
-- Web 控制台
-- 批量导入 Key
-- 真实同步 Tavily 官方额度
-- 同时保留代理侧成功 / 失败 / 延迟统计
-- 与 Tavily 官方 API 保持兼容
+- Tavily 独立代理入口：
+  - `POST /api/search`
+  - `POST /api/extract`
+- Firecrawl 独立代理入口：
+  - `/firecrawl/*`
+  - 示例：`POST /firecrawl/v2/scrape`
+- 独立代理 Token：
+  - Tavily Token 前缀：`tvly-`
+  - Firecrawl Token 前缀：`fctk-`
+- 控制台支持：
+  - 按服务导入 Key
+  - 按服务创建 Token
+  - 按服务同步真实额度
+  - 按服务查看 Key 池与用量
+  - 顶部一键切换 Tavily / Firecrawl 工作台
+
+## 和注册器如何联动
+
+注册器上传到 proxy 时，会直接调用：
+
+```json
+{
+  "key": "fc-xxxx",
+  "email": "fc-xxx@example.com",
+  "service": "firecrawl"
+}
+```
+
+也就是说：
+
+- Tavily 注册结果上传时会写入 Tavily 池
+- Firecrawl 注册结果上传时会写入 Firecrawl 池
+- 服务器不需要再靠 key 前缀猜测服务
+
+这条链路已经做过真实验证：Firecrawl 上传后会被 `/api/keys`
+识别成 `service=firecrawl`，不会落到 Tavily 池里。
 
 ## 推荐部署方式
 
-### 1. 直接用 Docker Hub 镜像启动
+### 1. 直接使用 Docker Hub 镜像
 
 ```bash
 mkdir -p tavily-proxy-data
@@ -53,8 +100,6 @@ http://localhost:9874
 
 ### 2. 使用 docker compose
 
-你也可以直接用仓库里的 compose：
-
 ```bash
 cd proxy
 docker compose up -d
@@ -63,8 +108,8 @@ docker compose up -d
 默认 compose 会：
 
 - 暴露端口 `9874`
-- 把数据库挂载到 `./data`
-- 用 `ADMIN_PASSWORD` 作为控制台密码
+- 将数据库挂载到 `./data`
+- 使用 `ADMIN_PASSWORD` 作为控制台密码
 
 ### 3. 本地源码运行
 
@@ -76,7 +121,7 @@ ADMIN_PASSWORD=your-admin-password uvicorn server:app --host 0.0.0.0 --port 9874
 
 ## 更新方式
 
-如果你已经在服务器上跑了旧容器，后续更新推荐直接：
+如果你已经在服务器上跑了旧版本，推荐直接拉新镜像后重启容器：
 
 ```bash
 docker pull skernelx/tavily-proxy:latest
@@ -92,80 +137,79 @@ docker run -d \
   skernelx/tavily-proxy:latest
 ```
 
-只要你保留原来的数据卷目录，Key、Token 和控制台密码都会继续保留。
+只要保留原来的数据卷目录，Key、Token 和控制台密码都会继续保留。旧库会自动迁移出 `service` 字段，历史 Tavily 数据会被标记为 `tavily`。
 
-## 控制台里现在能看到什么
+## 控制台里能看到什么
 
-当前控制台会分成两套统计：
+控制台现在不是上下两个长栏目硬堆，而是：
 
-### 1. Tavily 官方真实额度
+- 顶部服务卡片切换区
+- 首屏当前工作台概览
+- 下方当前服务的完整详情面板
 
-来自官方 `GET /usage`：
+每个服务面板里都能看到：
 
-- 单个 Key 的真实已用
-- 单个 Key 的真实剩余
-- 账户计划名
-- 账户总额度
-- 账户已用 / 剩余
+### 1. Tavily 栏目
 
-如果某个 Key 本身没有独立 `limit`，后台会自动回退到账户计划额度，而不是继续自己瞎算。
+- Key 池
+- Token 池
+- 真实额度汇总
+- Tavily `/usage` 同步状态
+- 代理侧成功 / 失败 / 月度统计
 
-### 2. 代理自身统计
+### 2. Firecrawl 栏目
 
-来自本地 `usage_logs`：
-
-- 成功次数
-- 失败次数
-- 今日用量
-- 本月代理用量
-- Token 级配额消耗
+- Key 池
+- Token 池
+- Firecrawl credits 汇总
+- Firecrawl credits 同步状态
+- 代理侧成功 / 失败 / 月度统计
 
 ## 使用流程
 
 1. 启动 proxy
-2. 打开控制台
-3. 输入管理密码登录
-4. 导入 Tavily Key
-5. 创建一个 Token
-6. 把这个 Token 给你的客户端使用
-7. 控制台里查看真实额度和代理统计
+2. 打开控制台并登录
+3. 在 Tavily 或 Firecrawl 栏目导入对应 Key
+4. 在对应栏目创建 Token
+5. 把该 Token 发给你的下游程序
+6. 用对应的代理端点发起请求
+7. 在控制台查看该服务的真实额度和代理统计
 
 ## API 调用方式
-
-代理保持 Tavily 官方接口风格，常用端点有：
-
-- `POST /api/search`
-- `POST /api/extract`
 
 认证方式支持两种：
 
 - `Authorization: Bearer YOUR_TOKEN`
 - body 里传 `api_key`
 
-### Search 示例
+### Tavily 示例
 
 ```bash
 curl -X POST http://localhost:9874/api/search \
-  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Authorization: Bearer YOUR_TAVILY_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"query": "hello world", "max_results": 1}'
 ```
 
-### Extract 示例
-
 ```bash
 curl -X POST http://localhost:9874/api/extract \
-  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Authorization: Bearer YOUR_TAVILY_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"urls": ["https://example.com"]}'
 ```
 
-### 也可以在 body 里传 token
+### Firecrawl 示例
 
 ```bash
-curl -X POST http://localhost:9874/api/search \
+curl -X POST http://localhost:9874/firecrawl/v2/scrape \
+  -H "Authorization: Bearer YOUR_FIRECRAWL_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"api_key": "YOUR_TOKEN", "query": "hello world"}'
+  -d '{"url": "https://example.com", "formats": ["markdown"]}'
+```
+
+```bash
+curl -X GET http://localhost:9874/firecrawl/v2/team/credit-usage \
+  -H "Authorization: Bearer YOUR_FIRECRAWL_TOKEN"
 ```
 
 ## 管理 API
@@ -181,13 +225,14 @@ curl -X POST http://localhost:9874/api/search \
 ### 常用管理端点
 
 - `GET /api/stats`
-  返回概览、Token 统计、真实额度汇总
+  返回 Tavily / Firecrawl 双服务概览
 
-- `GET /api/keys`
-  返回 Key 列表和脱敏信息
+- `GET /api/keys?service=tavily`
+- `GET /api/keys?service=firecrawl`
+  返回指定服务的 Key 列表
 
 - `POST /api/keys`
-  添加单个 Key 或批量导入
+  body 里传 `service`
 
 - `PUT /api/keys/{id}/toggle`
   启用 / 禁用某个 Key
@@ -195,17 +240,18 @@ curl -X POST http://localhost:9874/api/search \
 - `DELETE /api/keys/{id}`
   删除 Key
 
-- `GET /api/tokens`
-  获取 Token 列表
+- `GET /api/tokens?service=tavily`
+- `GET /api/tokens?service=firecrawl`
+  返回指定服务的 Token 列表
 
 - `POST /api/tokens`
-  创建 Token
+  body 里传 `service`
 
 - `DELETE /api/tokens/{id}`
   删除 Token
 
 - `POST /api/usage/sync`
-  手动同步 Tavily 官方真实额度
+  body 里传 `service`
 
 - `PUT /api/password`
   修改控制台密码
@@ -216,7 +262,7 @@ curl -X POST http://localhost:9874/api/search \
 |----------|--------|------|
 | `ADMIN_PASSWORD` | `admin` | 控制台登录密码 |
 | `USAGE_SYNC_TTL_SECONDS` | `300` | 真实额度缓存秒数 |
-| `USAGE_SYNC_CONCURRENCY` | `4` | 并发同步 `/usage` 的最大 Key 数 |
+| `USAGE_SYNC_CONCURRENCY` | `4` | 并发同步额度的最大 Key 数 |
 
 ## 数据持久化
 
@@ -226,47 +272,21 @@ SQLite 数据库默认保存在：
 /app/data/proxy.db
 ```
 
-所以容器部署时一定要挂载数据卷。
-
-例如：
+所以容器部署时一定要挂载数据卷，例如：
 
 ```bash
 -v /your/data/path:/app/data
 ```
 
-## Token 配额
-
-每个 Token 默认配额：
-
-- 小时：100
-- 每日：500
-- 每月：5000
-
-超过配额后会返回：
-
-```text
-429 Too Many Requests
-```
-
 ## 适合什么场景
 
-- 你有多个 Tavily Key，想做成一个统一入口
-- 你不想在下游程序里到处散落真实 Tavily Key
-- 你想知道每个 Key 的真实剩余额度，而不是自己估算
-- 你想给不同项目分不同的代理 Token
+- 你有多组 Tavily / Firecrawl Key，想统一出口
+- 你不想把真实 API Key 直接发给下游程序
+- 你希望 Tavily 和 Firecrawl 各自独立统计、独立授权
+- 你想让注册器自动把新拿到的 Key 上传进对应池子
 
 ## 注意事项
 
-- 控制台里显示的“真实额度”依赖 Tavily 官方 `/usage`
-- 如果某个 Key 被 Tavily 风控、失效或网络异常，同步状态里会显示错误
-- 代理统计和官方真实额度不是一回事，两者都会保留
-- 更新镜像时，只要不删数据卷，历史数据都会保留
-
-## 推荐做法
-
-如果你已经在用这个仓库的注册器主程序，最顺的链路其实是：
-
-1. 用主程序批量注册并拿到 Key
-2. 自动上传到你自己的 proxy
-3. 由 proxy 统一对外提供 Token
-4. 在控制台里看真实额度和代理消耗
+- Tavily 真实额度依赖官方 `/usage`
+- Firecrawl 当前主要返回账户级 credits 视图，控制台会优先展示账户额度
+- 旧数据库会自动迁移 `service` 字段，但旧数据默认视为 Tavily
