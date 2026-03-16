@@ -279,12 +279,6 @@ Suspicious activity detected
 - `proxy/`
   独立可选模块，用于把多个 Tavily key 做成统一代理池。
 
-不建议提交到 GitHub 的运行产物：
-
-- `.env`
-- `venv/`
-- `__pycache__/`
-- `accounts.txt`
 
 ## Optional Proxy Service
 
