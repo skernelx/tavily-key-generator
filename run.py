@@ -67,35 +67,6 @@ def _ensure_deps():
         subprocess.check_call([sys.executable, "-m", "pip", "install", "-r", req_file, "-q"])
         print("✅ 依赖安装完成\n")
 
-    # 检查 camoufox 浏览器
-    try:
-        import camoufox
-        data_dir = os.path.join(os.path.dirname(camoufox.__file__), "data")
-        if not os.path.exists(data_dir) or not os.listdir(data_dir):
-            print("正在下载 Camoufox 浏览器...")
-            subprocess.check_call([sys.executable, "-m", "camoufox", "fetch"])
-            print("✅ 浏览器下载完成\n")
-    except Exception:
-        pass
-
-    # 安装 Patchright 浏览器
-    try:
-        import patchright
-        pw_browsers = os.path.join(os.path.dirname(patchright.__file__), "driver", "package", ".local-browsers")
-        if not os.path.exists(pw_browsers):
-            print("正在安装 Patchright 浏览器...")
-            if sys.platform.startswith("linux"):
-                try:
-                    subprocess.check_call([sys.executable, "-m", "patchright", "install", "--with-deps", "chromium"])
-                except subprocess.CalledProcessError:
-                    print("⚠️  Patchright --with-deps 安装失败，尝试退回普通安装 chromium...")
-                    subprocess.check_call([sys.executable, "-m", "patchright", "install", "chromium"])
-            else:
-                subprocess.check_call([sys.executable, "-m", "patchright", "install", "chromium"])
-            print("✅ Patchright 浏览器安装完成\n")
-    except Exception:
-        pass
-
 _ensure_venv()
 _ensure_deps()
 
@@ -133,6 +104,124 @@ from mail_provider import create_email, get_active_domain, get_configured_domain
 # ──────────────────────────────────────────────
 
 solver_proc = None
+
+def _camoufox_browser_ready():
+    try:
+        result = subprocess.run(
+            [sys.executable, "-m", "camoufox", "path"],
+            capture_output=True,
+            check=True,
+            text=True,
+        )
+    except Exception:
+        return False
+
+    install_dir = result.stdout.strip()
+    if not install_dir:
+        return False
+
+    if os.path.isfile(install_dir):
+        return True
+
+    if not os.path.isdir(install_dir):
+        return False
+
+    try:
+        return bool(os.listdir(install_dir))
+    except OSError:
+        return False
+
+def _default_patchright_browser_root():
+    env_path = os.environ.get("PLAYWRIGHT_BROWSERS_PATH", "").strip()
+    if env_path:
+        if env_path == "0":
+            import patchright
+            return os.path.join(os.path.dirname(patchright.__file__), "driver", "package", ".local-browsers")
+        return os.path.expanduser(env_path)
+
+    home = os.path.expanduser("~")
+    if sys.platform == "win32":
+        local_app_data = os.environ.get("LOCALAPPDATA")
+        if local_app_data:
+            return os.path.join(local_app_data, "ms-playwright")
+        return os.path.join(home, "AppData", "Local", "ms-playwright")
+    if sys.platform == "darwin":
+        return os.path.join(home, "Library", "Caches", "ms-playwright")
+    return os.path.join(home, ".cache", "ms-playwright")
+
+def _patchright_expected_browser_paths():
+    try:
+        result = subprocess.run(
+            [sys.executable, "-m", "patchright", "install", "--dry-run", "chromium"],
+            capture_output=True,
+            text=True,
+        )
+    except Exception:
+        return []
+
+    if result.returncode != 0:
+        return []
+
+    paths = []
+    prefix = "Install location:"
+    for raw_line in result.stdout.splitlines():
+        line = raw_line.strip()
+        if not line.startswith(prefix):
+            continue
+        install_path = line[len(prefix):].strip()
+        if install_path:
+            paths.append(install_path)
+    return paths
+
+def _patchright_browser_ready():
+    expected_paths = _patchright_expected_browser_paths()
+    if expected_paths:
+        for install_path in expected_paths:
+            if os.path.basename(install_path).startswith("chromium-") and os.path.isdir(install_path):
+                return True
+        return False
+
+    browser_root = _default_patchright_browser_root()
+    if not os.path.isdir(browser_root):
+        return False
+
+    try:
+        entries = os.listdir(browser_root)
+    except OSError:
+        return False
+
+    for entry in entries:
+        if entry.startswith("chromium-"):
+            return True
+    return False
+
+def _ensure_camoufox_browser():
+    if _camoufox_browser_ready():
+        return
+
+    print("正在下载 Camoufox 浏览器...")
+    subprocess.check_call([sys.executable, "-m", "camoufox", "fetch"])
+    print("✅ 浏览器下载完成\n")
+
+def _ensure_patchright_browser():
+    if _patchright_browser_ready():
+        return
+
+    print("正在安装 Patchright 浏览器...")
+    if sys.platform.startswith("linux"):
+        try:
+            subprocess.check_call([sys.executable, "-m", "patchright", "install", "--with-deps", "chromium"])
+        except subprocess.CalledProcessError:
+            print("⚠️  Patchright --with-deps 安装失败，尝试退回普通安装 chromium...")
+            subprocess.check_call([sys.executable, "-m", "patchright", "install", "chromium"])
+    else:
+        subprocess.check_call([sys.executable, "-m", "patchright", "install", "chromium"])
+    print("✅ Patchright 浏览器安装完成\n")
+
+def _ensure_service_browsers(service):
+    _ensure_camoufox_browser()
+    if service == "tavily":
+        _ensure_patchright_browser()
 
 def validate_runtime_config(upload, show_provider_summary=True):
     if EMAIL_PROVIDER not in SUPPORTED_EMAIL_PROVIDERS:
@@ -523,6 +612,8 @@ def main():
 
     if upload and not validate_runtime_config(True, show_provider_summary=False):
         return
+
+    _ensure_service_browsers(service)
 
     if need_solver and not start_solver(thread_count=concurrency):
         print("无法启动 Solver，退出")
