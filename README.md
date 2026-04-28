@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/skernelx-tavily-key-generator-badge.png)](https://mseep.ai/app/skernelx-tavily-key-generator)
+
 # API Key Generator - Multi-Service Edition
 
 [English Guide](./README_EN.md)
